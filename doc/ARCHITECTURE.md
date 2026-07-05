@@ -1,14 +1,14 @@
-﻿# English Tutor Backend - Architecture Documentation
+﻿# Hospital Voice Agent - Architecture Documentation
 
 ## System Design Overview
 
-This document describes the architectural design patterns and decisions made in the English Tutor Backend system.
+This document describes the architectural design patterns and decisions made in the Hospital Voice Agent system.
 
 ## 1. High-Level Architecture
 
 ### Layered Architecture
 
-\\\
+```
 ┌────────────────────────────────────────────────────┐
 │           Presentation Layer                        │
 │    (LiveKit WebRTC, Voice Input/Output)             │
@@ -26,65 +26,62 @@ This document describes the architectural design patterns and decisions made in 
                       │
 ┌─────────────────────▼──────────────────────────────┐
 │              Service Layer                          │
-│  (Database, Latency Tracker, Metrics Collector)     │
+│  (Neon, Redis, Metrics Collector)                    │
 └─────────────────────┬──────────────────────────────┘
                       │
 ┌─────────────────────▼──────────────────────────────┐
 │          External Services Layer                    │
-│  (MongoDB, AWS S3, Deepgram, OpenAI, Cartesia)      │
+│  (Neon, Redis, AWS S3, Deepgram, OpenAI,             │
+│   Sarvam, Cartesia)                                 │
 └────────────────────────────────────────────────────┘
-\\\
+```
 
 ## 2. Design Patterns
 
 ### 2.1 Factory Pattern
-**Used by:** Assistant class
+**Used by:** Agent setup in main.py
 **Purpose:** Create language-specific agents dynamically
-\\\python
-# Factory creates correct agent based on language
-agent = Assistant()._tutor(language="english", ...)
-# Extensible for other languages
-\\\
+```python
+agent_setup = {"en": ExiaEnglish, "bn": ExiaBengali, "hi": ExiaHindi}
+agent = agent_setup[language](participant_context)
+```
 
 ### 2.2 Singleton Pattern
-**Used by:** SessionManager (per session)
-**Purpose:** Ensure single session instance per room
-- One SessionManager instance per active conversation
-- Manages lifecycle from start to end
-- Coordinates all session-related operations
+**Used by:** NeonPool
+**Purpose:** Single connection pool instance per process
+- One Neon pool shared across all sessions
+- Efficient connection reuse
+- Thread-safe via asyncio
 
 ### 2.3 Observer Pattern
 **Used by:** Metrics Collection
 **Purpose:** React to metric events as they occur
-\\\python
-# Metrics handler subscribes to session events
-session.metrics_collected += on_metrics_collected
-\\\
+```python
+session.metrics_collected += _on_metrics_collected
+```
 
 ### 2.4 Strategy Pattern
-**Used by:** ModelMetrics class
+**Used by:** MetricsCollector class
 **Purpose:** Different handling for different metric types
-\\\python
-# Routes metrics to appropriate handler method
+```python
 if isinstance(metric, TTSMetrics):
-    self.tts(metric)
+    self.collect_tts(metric)
 elif isinstance(metric, LLMMetrics):
-    self.llm(metric)
-\\\
+    self.collect_llm(metric)
+```
 
 ### 2.5 Decorator Pattern
 **Used by:** Noise Cancellation
-**Purpose:** Add noise cancellation to audio input without modifying core
-\\\python
-# Wraps audio input with BVC or BVCTelephony
+**Purpose:** Add noise cancellation to audio input
+```python
 noise_cancellation=lambda params: noise_cancellation.BVC()
-\\\
+```
 
 ## 3. Data Flow Architecture
 
 ### 3.1 Voice Conversation Flow
 
-\\\
+```
 User Voice Input (Microphone)
         │
         ▼
@@ -102,57 +99,52 @@ User Voice Input (Microphone)
          ▼
     ┌────────────────┐
     │ STT            │ (Speech-to-Text)
-    │ (Deepgram)     │
+    │ (Deepgram/     │
+    │  Sarvam)       │
     └────┬───────────┘
          │
          ▼
     ┌────────────────┐
     │ LLM            │ (Language Understanding)
-    │ (OpenAI)       │ (Response Generation)
+    │ (Sarvam/       │ (Response Generation)
+    │  OpenAI)       │
     └────┬───────────┘
          │
          ▼
     ┌────────────────┐
     │ TTS            │ (Text-to-Speech)
-    │ (Cartesia)     │
+    │ (Cartesia/     │
+    │  Sarvam)       │
     └────┬───────────┘
          │
          ▼
     Agent Voice Output (Speakers)
-\\\
+```
 
 ### 3.2 Data Persistence Flow
 
-\\\
+```
 Session Start
     │
-    ├─▶ MongoDB: Store Session Metadata
-    │   (participant_context, created_at)
-    │
-    ├─▶ Temp File: Initialize Conversation Log
-    │   (session_id, empty conversation_history)
-    │
-    └─▶ Memory: Initialize Latency Tracker
+    └─▶ Redis: Initialize Session
+        (session_id, conversation_history[], participant_context, TTL 2h)
 
 Conversation Active
     │
-    ├─▶ Temp File: Append Conversation Items
-    │   (real-time, fast access)
-    │
-    └─▶ Memory: Buffer Latency Metrics
-        (accumulate components)
+    └─▶ Redis: Append Conversation Items
+        (real-time, TTL reset on each write)
 
 Session End
     │
-    ├─▶ MongoDB: Update Session with Final Metrics
-    │   (latency_metrics, statistics)
+    ├─▶ Neon: Insert session_history
+    │   (session_id, summary, evaluation, turn_count, duration, category)
     │
-    ├─▶ AWS S3: Upload Recording
-    │   (audio_only MP4 via egress)
+    ├─▶ Neon: Insert session_cost
+    │   (session_id, stt_cost, llm_cost, tts_cost, total_cost)
     │
-    └─▶ File System: Archive/Cleanup
-        (temporary conversation log)
-\\\
+    └─▶ Redis: Delete Temporary Data
+        (cleanup active session key)
+```
 
 ## 4. Component Responsibilities
 
@@ -169,35 +161,34 @@ Session End
 - Receive user input
 - Generate contextual responses
 - Apply language-specific rules
-- Provide tutoring feedback
+- Call hospital tools for appointment operations
 
 ### 4.3 Session Manager
 **Responsibility:** Session lifecycle and coordination
 - Manage participant context
 - Coordinate component interactions
-- Persist session data
-- Track session metrics
+- Persist session data to Neon
+- Cache active data in Redis
 - Handle cleanup
 
 ### 4.4 Database Services
 **Responsibility:** Data persistence
-- Connection management
-- CRUD operations
-- Data validation
-- Connection pooling
+- Neon serverless connection pool management
+- CRUD operations (doctors, bookings, availability, etc.)
+- JSONB storage for evaluations and flexible data
+- Async operations via asyncpg with serverless optimizations
 
 ### 4.5 Metrics Components
 **Responsibility:** Performance monitoring
 - Collect metrics from all components
 - Aggregate statistics
-- Display formatted reports
-- Enable performance analysis
+- Monitor latency across the pipeline
 
 ## 5. State Management
 
 ### 5.1 Session States
 
-\\\
+```
 ┌─────────┐
 │  IDLE   │ (No active session)
 └────┬────┘
@@ -212,93 +203,66 @@ Session End
 │ ACTIVE                  │ (Conversation ongoing)
 │ - Tracking metrics      │
 │ - Logging conversation  │
-│ - Managing latency      │
+│ - Caching in Redis      │
 └────┬────────────────────┘
      │ end_session() called
      ▼
 ┌─────────────────────────┐
 │ FINALIZING              │ (Cleanup operations)
-│ - Persist data          │
-│ - Generate reports      │
+│ - Persist to Neon       │
+│ - Clean up Redis        │
 └────┬────────────────────┘
      │ cleanup complete
      ▼
 ┌─────────┐
 │  IDLE   │ (Back to idle state)
 └─────────┘
-\\\
-
-### 5.2 Metrics Buffer States
-
-\\\
-Empty Buffer
-    │
-    ├─▶ EOUDelay received → {eou_delay: value}
-    │
-    ├─▶ LLM_TTFT received → {eou_delay, llm_ttft}
-    │
-    └─▶ TTS_TTFB received → Complete Sample
-        └─▶ Calculate Total
-        └─▶ Store Sample
-        └─▶ Reset Buffer
-\\\
+```
 
 ## 6. Configuration Management
 
 ### 6.1 Environment-Based Configuration
 
-\\\
+```
 .env File (Local)
     │
     └─▶ python-dotenv
         └─▶ os.getenv()
             ├─▶ LiveKit Settings
-            ├─▶ MongoDB Settings  
+            ├─▶ Neon Settings
+            ├─▶ Redis Settings
             ├─▶ AWS Settings
             └─▶ API Keys
-\\\
+```
 
-### 6.2 Configuration Initialization
+### 6.2 Configuration Classes
 
-\\\python
-# Follows 12-Factor App principles
-Environment Variables
-    │
-    ├─▶ Hard-coded defaults for development
-    │
-    └─▶ Override via Docker/K8s for production
-\\\
+```python
+class NeonConfig:
+    database_url = env("NEON_DATABASE_URL")
+```
 
 ## 7. Error Handling Architecture
 
 ### 7.1 Error Handling Strategy
 
-\\\
+```
 Try-Except Blocks
     │
-    ├─▶ Connection Errors → Log & Reconnect
-    │   (Database, External APIs)
+    ├─▶ Connection Errors → Log & Continue without DB
+    │   (Neon, Redis)
     │
     ├─▶ Metric Processing Errors → Log Only
     │   (Don't interrupt conversation)
     │
     └─▶ Session Errors → Log & Cleanup
         (Graceful shutdown)
-\\\
+```
 
-### 7.2 Logging Architecture
-
-\\\
-Python Logging Module
-    │
-    ├─▶ logger.info() → Informational messages
-    │
-    ├─▶ logger.warning() → Non-critical issues
-    │
-    └─▶ logger.error() → Error conditions
-        └─▶ KMS/logs/ directory
-            └─▶ Session-based log files
-\\\
+### 7.2 Graceful Degradation
+- If Neon is unavailable, sessions continue with Redis-only caching
+- Session data is logged as warning but conversation is not interrupted
+- Final persistence is attempted at session end
 
 ## 8. Performance Optimization
 
@@ -309,89 +273,69 @@ Python Logging Module
 
 ### 8.2 Caching Strategy
 - **VAD Model:** Pre-warmed in prewarm() function
-- **Conversation Context:** Kept in memory
-- **Session Data:** Lazy loaded from MongoDB
+- **Conversation Context:** Kept in Redis (2h TTL)
+- **Session Data:** Active in Redis, persisted to Neon
 
-### 8.3 Concurrency Model
-- **Async/Await:** All I/O operations non-blocking
-- **Event Loop:** Single event loop per session
-- **No Thread Blocking:** Ensures responsive agent
+### 8.3 Connection Pooling
+- **Neon:** asyncpg pool (1-5 connections, serverless-optimized)
+- **Redis:** Single connection with auto-reconnect
 
 ## 9. Scalability Considerations
 
 ### 9.1 Horizontal Scaling
-\\\
+```
 Multiple Agent Servers
     ├─▶ Load Balancer (allocates rooms)
     │
-    ├─▶ MongoDB Connection Pool
-    │   (Shared database)
+    ├─▶ Neon Connection Pool
+    │   (Serverless, auto-scaling)
     │
-    └─▶ AWS S3 (Shared storage)
-\\\
+    └─▶ Redis (Shared cache)
+```
 
 ### 9.2 Session Isolation
 - Each session runs independently
 - No cross-session data sharing
-- Database per MongoDB collection separation
-
-### 9.3 Resource Limits
-- VAD model loaded per process (prewarm)
-- Connection pooling via MongoClient
-- Metric buffer size manageable
+- Neon JSONB for flexible evaluation and metadata storage
 
 ## 10. Security Architecture
 
 ### 10.1 Credential Management
 - Environment variables for secrets
 - No hardcoded API keys
-- Separate AWS credentials per environment
+- Separate credentials per environment
 
 ### 10.2 Data Protection
-- MongoDB connection with TLS option
+- Neon SSL-encrypted connections (`sslmode=require`)
 - AWS S3 bucket encryption
 - Input validation on all API calls
 
 ### 10.3 Access Control
 - LiveKit API authentication
-- MongoDB connection string validation
+- Neon connection string with embedded credentials
 - Participant context tracking
 
-## 11. Extension Architecture
+## 11. Storage Architecture
 
-### 11.1 Adding New Languages
+### Neon Schema (7 tables)
 
-\\\
-1. Create Language Class
-   └─▶ src/voice_agent/agents.py
-       └─▶ class FrenchTutor(Agent)
+```sql
+doctors (id, name, specialty, department, phone, email, ...)
+availability (id, doctor_id, day_of_week, start_time, end_time, ...)
+leave_tracker (id, doctor_id, start_date, end_date, status, ...)
+bookings (id, booking_id, patient_name, patient_phone, doctor_id, date, time, status, ...)
+today_visiting (id, doctor_id, visit_date, available_slots, ...)
+session_history (id, session_id, patient_phone, summary, evaluation JSONB, ...)
+session_cost (id, session_id, stt_cost, llm_cost, tts_cost, total_cost, ...)
+```
 
-2. Create Language Prompt
-   └─▶ src/prompt/french.py
-       └─▶ def french_prompt(user_info)
-
-3. Update Factory
-   └─▶ Assistant._tutor()
-       └─▶ Add case for "french"
-\\\
-
-### 11.2 Adding Custom Metrics
-
-\\\
-1. Define Metric Handler
-   └─▶ src/services/metrics.py
-       └─▶ def custom_metric(self, metrics)
-
-2. Update Router
-   └─▶ ModelMetrics.process_metric()
-       └─▶ Add isinstance check
-
-3. Subscribe Handler
-   └─▶ main.py
-       └─▶ on_metrics_collected()
-\\\
+### Redis Keys
+```
+session:{session_id} → {session_id, conversation_history}
+TTL: 7200s (2 hours)
+```
 
 ---
 
-**Version:** 1.0  
-**Last Updated:** March 30, 2026
+**Version:** 2.0
+**Last Updated:** July 5, 2026

@@ -16,7 +16,7 @@ class RedisClient:
         self._initialized = False
         self.logger = logging.getLogger(__name__)
 
-    def connect(self) -> redis_lib.Redis:
+    def connect(self) -> redis_lib.Redis:  # Lazy connection with ping health check
         if not self._initialized:
             try:
                 self.client = redis_lib.from_url(self.redis_url, decode_responses=True)
@@ -28,20 +28,20 @@ class RedisClient:
                 raise
         return self.client
 
-    def set_json(self, key: str, data: dict, ttl: Optional[int] = None) -> None:
+    def set_json(self, key: str, data: dict, ttl: Optional[int] = None) -> None:  # Serialize dict to JSON and store with optional TTL
         self.connect()
         self.client.set(key, json.dumps(data))
         if ttl is not None:
             self.client.expire(key, ttl)
 
-    def get_json(self, key: str) -> Optional[dict]:
+    def get_json(self, key: str) -> Optional[dict]:  # Deserialize JSON value from Redis
         self.connect()
         data = self.client.get(key)
         if data is not None:
             return json.loads(data)
         return None
 
-    def append_to_array(self, key: str, array_field: str, item: dict, ttl: Optional[int] = None) -> None:
+    def append_to_array(self, key: str, array_field: str, item: dict, ttl: Optional[int] = None) -> None:  # Read-modify-write: appends to a JSON array field
         data = self.get_json(key)
         if data is None:
             data = {}
@@ -50,11 +50,11 @@ class RedisClient:
         data[array_field].append(item)
         self.set_json(key, data, ttl)
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str) -> None:  # Remove key from Redis
         self.connect()
         self.client.delete(key)
 
-    def disconnect(self) -> None:
+    def disconnect(self) -> None:  # Close connection, reset state
         if self.client is not None:
             self.client.close()
             self._initialized = False

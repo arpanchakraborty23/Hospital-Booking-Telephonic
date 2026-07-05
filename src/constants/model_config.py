@@ -33,8 +33,8 @@ class ModelConfig:
             stt=ModelEnv.livekit_stt_model_en,
             llm=ModelEnv.livekit_llm_model_en,
             tts=ModelEnv.livekit_tts_model_en,
-            greeting="Hello, I am Kavya. How can I help you?",
-            instructions="Respond in clear, concise English.",
+            greeting="Namaste, main Riya hoon. Main aapki appointment mein kaise madad kar sakti hoon?",
+            instructions="Respond in clear, concise English as a hospital receptionist.",
         ),
         "hi": LanguageModelConfig(
             code="hi",
@@ -42,8 +42,8 @@ class ModelConfig:
             stt=ModelEnv.livekit_stt_model_hi,
             llm=ModelEnv.livekit_llm_model_hi,
             tts=ModelEnv.livekit_tts_model_hi,
-            greeting="Namaste, main Kavya hoon. Main aapki kaise madad kar sakti hoon?",
-            instructions="Respond in natural Hindi unless the user asks for another language.",
+            greeting="Namaste, main Riya hoon. Main aapki appointment mein kaise madad kar sakti hoon?",
+            instructions="Respond in natural Hindi as a hospital receptionist.",
         ),
         "bn": LanguageModelConfig(
             code="bn",
@@ -51,13 +51,13 @@ class ModelConfig:
             stt=ModelEnv.livekit_stt_model_bn,
             llm=ModelEnv.livekit_llm_model_bn,
             tts=ModelEnv.livekit_tts_model_bn,
-            greeting="Nomoskar, ami Kavya. Ami apnake ki bhabe sahajyo korte pari?",
-            instructions="Respond in natural Bengali unless the user asks for another language.",
+            greeting="Nomoskar, ami Riya. Ami apnar appointment-e ki bhabe sahajyo korte pari?",
+            instructions="Respond in natural Bengali as a hospital receptionist.",
         ),
     }
 
     @classmethod
-    def normalize_language(cls, language: str | None) -> str:
+    def normalize_language(cls, language: str | None) -> str:  # "en-IN" -> "en", None -> "en"
         if not language:
             return cls.DEFAULT_LANGUAGE
 
@@ -65,24 +65,24 @@ class ModelConfig:
         return code or cls.DEFAULT_LANGUAGE
 
     @classmethod
-    def get_language_model(cls, language: str | None = None) -> LanguageModelConfig:
+    def get_language_model(cls, language: str | None = None) -> LanguageModelConfig:  # Resolve language code to model config
         code = cls.normalize_language(language)
         return cls._LANGUAGE_MODELS.get(code, cls._LANGUAGE_MODELS[cls.DEFAULT_LANGUAGE])
 
     @classmethod
-    def get_models(cls, language: str | None = None) -> LanguageModelConfig:
+    def get_models(cls, language: str | None = None) -> LanguageModelConfig:  # Alias for get_language_model
         return cls.get_language_model(language)
 
     @classmethod
-    def models(cls) -> dict[str, LanguageModelConfig]:
+    def models(cls) -> dict[str, LanguageModelConfig]:  # All language model configs
         return dict(cls._LANGUAGE_MODELS)
 
     @classmethod
-    def supported_languages(cls) -> tuple[str, ...]:
+    def supported_languages(cls) -> tuple[str, ...]:  # List of language codes
         return tuple(cls._LANGUAGE_MODELS)
 
 
-def get_models(language: SupportedLanguage = "en") -> LanguageModelConfig:
+def get_models(language: SupportedLanguage = "en") -> LanguageModelConfig:  # Shorthand for external imports
     return ModelConfig.get_language_model(language=language)
 
 

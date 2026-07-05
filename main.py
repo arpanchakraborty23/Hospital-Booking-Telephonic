@@ -1,40 +1,55 @@
-import os
-import logging
 import asyncio
+import logging
 
-from livekit import agents, rtc, api
-from livekit.agents import AgentServer, AgentSession, room_io,  JobProcess, metrics, MetricsCollectedEvent,  SessionUsageUpdatedEvent
+from prometheus_client import Counter, Gauge, Histogram
+
+from livekit import agents, rtc
+from livekit.agents import AgentServer, AgentSession, room_io, JobProcess, metrics, UserStateChangedEvent, MetricsCollectedEvent, SessionUsageUpdatedEvent
+from livekit.agents import ChatContext, JobContext, ServerEnvOption
 from livekit.plugins import noise_cancellation, silero
-from livekit.plugins.turn_detector.english import EnglishModel
 from livekit.agents.metrics import EOUMetrics, LLMMetrics, TTSMetrics, STTMetrics, VADMetrics, InterruptionMetrics
 
+from src.services.database import NeonPool
 from src.voice_agent import ExiaHindi, ExiaEnglish, ExiaBengali
-from src.constants import Credentials
+from src.tools.hospital_tools import HospitalTools
 from src.services import SessionManager
-from src.services import MongoServices
-from src.utils import (
-    build_user_profile_text,
-)
 from src.voice_agent import MetricsCollector
-
-
-# Configuration
-livekit_config = Credentials.livekit
-aws_config = Credentials.aws
-mongo_config = Credentials.mongo  
-
+from src.constants.config import LiveKitConfig
 
 logger = logging.getLogger(__name__)
-session_manager = SessionManager()
-mongo_services = MongoServices(url=mongo_config.mongodb_uri or "", db=mongo_config.mongodb_name or "",collection=mongo_config.mongodb_user_collection or "")
-metrics_collector = MetricsCollector()
 
-# Agent Server Setup
+# Singleton instances shared across all sessions
+session_manager = SessionManager()
+metrics_collector = MetricsCollector()
+agent_name = LiveKitConfig.livekit_agent_name or "Riya"
+
+# Custom application metrics (complement SDK's built-in metrics)
+active_sessions = Gauge("hospital_active_sessions", "Currently active voice sessions")
+total_sessions = Counter("hospital_total_sessions_total", "Total sessions handled")
+stt_latency = Histogram("hospital_stt_latency_seconds", "STT latency", buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0])
+llm_latency = Histogram("hospital_llm_latency_seconds", "LLM latency", buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0])
+tts_latency = Histogram("hospital_tts_latency_seconds", "TTS latency", buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0])
+
+
 server = AgentServer(
-    api_key=livekit_config.livekit_api_key,
-    api_secret=livekit_config.livekit_api_secret,
-    ws_url=livekit_config.livekit_url
+    load_threshold=0.7,
+    drain_timeout=3600,
+    num_idle_processes=ServerEnvOption(dev_default=0, prod_default=4),
+    log_level=ServerEnvOption(dev_default="DEBUG", prod_default="INFO"),
+    prometheus_port=8001,
+    host="0.0.0.0",
+    port=8081,
 )
+
+async def get_bookings_by_phone(phone: str) -> list[dict]:
+    pool = await NeonPool.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM bookings WHERE patient_phone = $1 ORDER BY appointment_date DESC",
+            phone,
+        )
+        return [dict(r) for r in rows]
+
 
 def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load()
@@ -42,130 +57,174 @@ def prewarm(proc: JobProcess):
 server.setup_fnc = prewarm
 
 
-@server.rtc_session()
-async def my_agent(ctx: agents.JobContext):
 
-    ctx.log_context_fields = {
-        "room_name": ctx.room.name,
-    }
+@server.rtc_session()
+async def my_agent(ctx: JobContext):
+
+    inactivity_task: asyncio.Task | None = None
+    participant_context : dict = {}
+    language = "en"
+
+    ctx.log_context_fields = {"room_name": ctx.room.name}
 
     await ctx.connect()
+
+    # Wait for participant to join the room before proceeding with session setup
     participant = await ctx.wait_for_participant()
 
-    # User Data Lookup
-    user_data = mongo_services.collection.find_one({"identity": participant.identity})
+    # Check if this is a SIP call and initialize logging
+    is_sip_call = (
+                hasattr(participant, 'kind') and 
+                participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
+            )
+    
+    # Extracting database lookup information for the participant
+    if is_sip_call:
+        logger.info(f"SIP call detected for participant {participant.identity}. Initializing SIP logging.")
+        ctx.log_context_fields["sip_identity"] = participant.identity
+        caller_id = participant.identity
+        phone_number = participant.attributes.get('sip.phoneNumber', 'Unknown')
 
-    # Build the runtime context 
+    participant_details = await get_bookings_by_phone(phone_number) if is_sip_call else None
+
+
     participant_context = {
         "identity": participant.identity,
-        "name": participant.name,
-        "language": user_data.get("language", "en") if user_data else "en",
+        "name": participant_details.name if participant_details else participant.name,
+        "language": participant_details.language if participant_details else language,
     }
     logger.info("Participant context: %s", participant_context)
 
+    # Start Redis session — stores participant context + conversation history with 2h TTL
+    await session_manager.start(session_id=ctx.room.name, participant_context=participant_context)
 
+    # Inject long-term patient history into chat context so agent knows past interactions
+    chat_ctx = ChatContext()
+    chat_ctx.add_message(role="system", content=participant_context)
+    logger.info("Injected %d past sessions for %s", participant_context["identity"])
+
+
+    # Create language-specific agent with fixed name (never receives participant.name)
     agent_setup = {
         "en": ExiaEnglish,
         "bn": ExiaBengali,
-        "hi": ExiaHindi
+        "hi": ExiaHindi,
     }
+    agent = agent_setup[language](
+        agent_name=agent_name,
+        chat_ctx=chat_ctx,
+    )
 
-
-    agent = agent_setup[participant_context["language"]](participant_context)
+    # Scope tools — start with only the router toolset; domain tools loaded on demand by tool_router
+    agent.update_tools([HospitalTools.get_toolset("router")])
 
     session = AgentSession(
         vad=silero.VAD.load(),
         turn_handling={
-            "endpointing": {
-                "mode": "dynamic",
-                "min_delay": 0.5,
-                "max_delay": 1.5,
-            },
-            "interruption":{
-                "mode":"adaptive",
-                "min_duration":0.4,
-                "resume_false_interruption":True   
-            },
-            "preemptive_generation":{
-                "enabled":True,
-                "preemptive_tts":True,
-            }
-        }
+            "endpointing": {"mode": "dynamic", "min_delay": 0.5, "max_delay": 1.5},
+            "interruption": {"mode": "adaptive", "min_duration": 0.4, "resume_false_interruption": True},
+            "preemptive_generation": {"enabled": True, "preemptive_tts": True},
+        },
     )
+                
+    async def user_presence_task():
+        # try to ping the user 3 times, if we get no answer, close the session
+        for attempt in range(2):
+            await session.generate_reply(
+                instructions=(
+                    "The user has been inactive. Politely check if the user is still present."
+                )
+            )
+            await asyncio.sleep(20)
 
-    # Initialize session manager with participant context
-    session_manager.start(session_id=ctx.room.name, participant_context=participant_context)
-
+        await asyncio.shield(session.aclose())
+        ctx.delete_room()
+      
+    active_sessions.inc()
+    total_sessions.inc()
 
     await session.start(
         room=ctx.room,
         agent=agent,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
-                noise_cancellation=lambda params: noise_cancellation.BVCTelephony() if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP else noise_cancellation.BVC(),
+                noise_cancellation=lambda params: noise_cancellation.BVCTelephony()
+                if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
+                else noise_cancellation.BVC(),
             ),
         ),
     )
 
+    @session.on("user_state_changed")
+    def _user_state_changed(ev: UserStateChangedEvent):
+        nonlocal inactivity_task
+        # ev.new_state: listening, speaking, away, ..
+        if getattr(ev, "new_state", None) == "away":
+            # start a task to check presence
+            inactivity_task = asyncio.create_task(user_presence_task())
+            return
+
+        # user returned / changed state — cancel inactivity task if present
+        if inactivity_task is not None:
+            inactivity_task.cancel()
+            inactivity_task = None
+
+
+
+    # Dispatch table avoids if/elif chain — maps metric type to (collect_fn, observe_fn)
+    _METRIC_HANDLERS: dict[type, tuple] = {
+        STTMetrics: (metrics_collector.collect_stt, lambda m: stt_latency.observe(m.duration)),
+        VADMetrics: (metrics_collector.collect_vad, None),
+        EOUMetrics: (metrics_collector.collect_eou, None),
+        LLMMetrics: (metrics_collector.collect_llm, lambda m: llm_latency.observe(m.ttft)),
+        TTSMetrics: (metrics_collector.collect_tts, lambda m: tts_latency.observe(m.ttfb)),
+        InterruptionMetrics: (metrics_collector.collect_interruption, None),
+    }
+
+    async def _handle_metric(m):
+        handler = _METRIC_HANDLERS.get(type(m))
+        if handler:
+            collect_fn, observe_fn = handler
+            collect_fn(m)
+            if observe_fn:
+                observe_fn(m)
+
     @session.on("metrics_collected")
     def _on_metrics_collected(ev: MetricsCollectedEvent):
         metrics.log_metrics(ev.metrics)
-        m = ev.metrics
-
-        if isinstance(m, STTMetrics):
-            metrics_collector.collect_stt(m)
-        elif isinstance(m, VADMetrics):
-            metrics_collector.collect_vad(m)
-        elif isinstance(m, EOUMetrics):
-            metrics_collector.collect_eou(m)
-        elif isinstance(m, LLMMetrics):
-            metrics_collector.collect_llm(m)
-        elif isinstance(m, TTSMetrics):
-            metrics_collector.collect_tts(m)
-        elif isinstance(m, InterruptionMetrics):
-            metrics_collector.collect_interruption(m)
+        asyncio.get_running_loop().create_task(_handle_metric(ev.metrics))
 
     @session.on("session_usage_updated")
     def _on_session_usage_updated(ev: SessionUsageUpdatedEvent):
         metrics_collector.update_session_usage(ev)
 
-    # Event handler for conversation items
     @session.on("conversation_item_added")
     def on_conversation_item(event):
-        """Handle conversation items (covers both user and agent messages)."""
         try:
             item = event.item
-            if hasattr(item, 'content') and item.content:
-                # Determine speaker based on item type or role
-                speaker = "USER" if hasattr(item, 'role') and item.role == 'user' else "AGENT"
-                
-                # Log conversation entry
-                log_entry = {
+            if hasattr(item, "content") and item.content:
+                speaker = "USER" if hasattr(item, "role") and item.role == "user" else "AGENT"
+                session_manager.session_log({
                     "role": speaker.lower(),
                     "message": item.content,
-                    "speaker": speaker
-                }
-                session_manager.session_log(log_entry)
-            
+                    "speaker": speaker,
+                })
             if event.item.metrics:
                 metrics_collector.add_turn_latency(event.item.role, event.item.metrics)
-
         except Exception as e:
             logger.error(f"Error logging conversation item: {e}")
 
-    # Handle session shutdown and cleanup
+
     async def end_handler():
-        """Handle session end and perform cleanup."""
         try:
-            
-            # End session and persist conversation to MongoDB
-            session_manager.end_session()
-            
+            active_sessions.dec()
+            await session_manager.end_session()
             logger.info(f"Session for room {ctx.room.name} ended and cleaned up.")
         except Exception as e:
             logger.error(f"Error during session cleanup: {e}")
 
     ctx.add_shutdown_callback(end_handler)
+
 
 if __name__ == "__main__":
     agents.cli.run_app(server)

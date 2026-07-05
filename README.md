@@ -1,488 +1,341 @@
-﻿# English Tutor Backend
+﻿# Hospital Voice Agent – AI Receptionist
 
-A powerful AI-driven voice conversation system for personalized English language tutoring built with LiveKit Agents.
-
-## Table of Contents
-- [Overview](#overview)
-- [Key Features](#key-features)
-- [System Architecture](#system-architecture)
-- [Technology Stack](#technology-stack)
-- [Quick Start](#quick-start)
-- [Project Structure](#project-structure)
-- [Configuration](#configuration)
-- [Components](#components)
-- [Usage Examples](#usage-examples)
-- [Performance Metrics](#performance-metrics)
-- [Database Schema](#database-schema)
-- [Contributing](#contributing)
-- [License](#license)
+An AI-powered multilingual voice receptionist for hospital appointment booking, rescheduling, cancellations, and general inquiries — built with LiveKit Agents.
 
 ## Overview
 
-This backend service provides an intelligent English tutoring experience through real-time voice conversations. It leverages cutting-edge AI technologies including:
-- **Voice Recognition:** Deepgram Nova-3
-- **Language Generation:** OpenAI GPT-4.1 Mini
-- **Voice Synthesis:** Cartesia Sonic-3
-- **Conversation Management:** LiveKit Agents Framework
+This system provides an intelligent hospital receptionist experience through real-time voice conversations. It handles phone calls for:
 
-The system is designed to adapt to students of all proficiency levels, from beginners to advanced learners, providing personalized feedback and engaging learning experiences.
+- **Booking** new appointments
+- **Rescheduling** existing appointments
+- **Cancelling** appointments
+- **Checking** appointment status
+- **Emergency** escalation to human agents
+- **General inquiries** about doctors, departments, and hospital info
 
-## Key Features
+### AI Stack
 
-### 🎯 Adaptive Learning
-- Automatic proficiency level assessment
-- Dynamic difficulty adjustment based on student performance
-- Personalized learning paths tailored to individual needs
-
-### 🗣️ Advanced Voice Processing
-- Real-time speech recognition with high accuracy
-- Natural voice synthesis for realistic responses
-- Intelligent voice activity detection (VAD)
-- Automatic turn detection for natural conversation flow
-
-### 📊 Comprehensive Metrics & Monitoring
-- End-to-end latency tracking
-- Performance metrics for each AI component (STT, LLM, TTS)
-- Session analytics and conversation statistics
-- Real-time metric visualization
-
-### 💾 Robust Data Management
-- MongoDB-based session storage
-- AWS S3 integration for recording backup
-- Conversation history persistence
-- Latency component tracking
-
-### 🌐 Multi-Component Integration
-- Seamless integration with LiveKit infrastructure
-- Real-time egress for recording management
-- Participant context preservation
-- SIP telephone support with noise cancellation
-
-## System Architecture
-
-`
-┌─────────────────────────────────────┐
-│      Frontend / Client Layer        │
-│   (Voice Input/Output Device)       │
-└────────────────┬────────────────────┘
-                 │ WebRTC Audio Stream
-                 ▼
-┌─────────────────────────────────────┐
-│     LiveKit Agent Server            │
-│  - Session Management               │
-│  - Audio Streaming                  │
-│  - Room Management                  │
-└────────────────┬────────────────────┘
-                 │
-    ┌────────────┼────────────┐
-    ▼            ▼            ▼
-┌────────┐  ┌────────┐  ┌────────┐
-│ Agent  │  │Session │  │Metrics │
-│Manager │  │Manager │  │Tracker │
-└────────┘  └────────┘  └────────┘
-    │            │            │
-    └────────────┼────────────┘
-                 │
-    ┌────────────┼────────────┐
-    ▼            ▼            ▼
-┌──────────┐ ┌────────┐  ┌─────────┐
-│ Deepgram │ │ OpenAI │  │Cartesia │
-│ (STT)    │ │(LLM)   │  │ (TTS)   │
-└──────────┘ └────────┘  └─────────┘
-    │            │            │
-    └────────────┼────────────┘
-                 │
-    ┌────────────┼────────────┐
-    ▼            ▼            ▼
-┌────────┐  ┌────────┐  ┌─────────┐
-│MongoDB │  │AWS S3  │  │Silero   │
-│        │  │        │  │VAD      │
-└────────┘  └────────┘  └─────────┘
-`
-
-## Technology Stack
-
-### Core Framework
-- **LiveKit Agents** - Agent orchestration and real-time communication
-- **Python 3.14+** - Primary programming language
-- **AsyncIO** - Asynchronous operations
-
-### AI/ML Services
-| Service | Provider | Model | Purpose |
-|---------|----------|-------|---------|
-| Speech-to-Text | Deepgram | Nova-3:multi | Multilingual speech recognition |
-| Language Model | OpenAI | GPT-4.1 Mini | Intelligent tutoring responses |
-| Text-to-Speech | Cartesia | Sonic-3 | Natural voice synthesis |
-| Voice Activity Detection | Silero | Built-in | Detect user speech |
-
-### Infrastructure
-- **MongoDB** - Session and conversation storage
-- **AWS S3** - Recording and backup storage
-- **LiveKit Server** - Real-time communication backend
-
-### Dependencies
-`python
-python-dotenv>=1.2.2
-livekit-agents[silero,turn-detector]~=1.4
-livekit-plugins-noise-cancellation~=0.2
-pymongo>=4.16.0
-`
+| Service | Provider | Model | Languages |
+|---------|----------|-------|-----------|
+| Speech-to-Text | Deepgram | Nova-3 | English, Hindi |
+| Speech-to-Text | Sarvam | Saaras v2.5 | Bengali |
+| Language Model | Sarvam | sarvam-105b-32k | All |
+| LLM Fallback | OpenAI | GPT-4.1 Mini | All |
+| Text-to-Speech | Cartesia | Sonic-3 | English, Hindi |
+| Text-to-Speech | Sarvam | Bulbul v3 | Bengali |
 
 ## Quick Start
 
 ### Prerequisites
-- Python 3.14 or higher
-- MongoDB database (local or cloud)
-- AWS S3 bucket for recordings
-- API keys for:
-  - OpenAI GPT-4.1
-  - Deepgram Nova-3
-  - Cartesia TTS
-  - LiveKit
 
-### Installation
+- Python 3.14+
+- A [Neon](https://neon.tech) database (free serverless PostgreSQL)
+- Redis (optional — `docker compose up -d` for local)
+- API keys for: Deepgram, Sarvam AI, Cartesia TTS, LiveKit
 
-1. **Clone Repository**
-   \\\ash
-   git clone <repository-url>
-   cd English-Tutor/Backend
-   \\\
+### 1. Clone & Setup
 
-2. **Create Virtual Environment**
-   \\\ash
-   python -m venv venv
-   # Windows
-   .\\venv\\Scripts\\activate
-   # macOS/Linux
-   source venv/bin/activate
-   \\\
+```bash
+git clone <repository-url>
+cd QI_Hospital_Assitant
 
-3. **Install Dependencies**
-   \\\ash
-   pip install -e .
-   \\\
+python -m venv venv
+# Windows
+venv\Scripts\activate
+# macOS/Linux
+source venv/bin/activate
 
-4. **Configure Environment**
-   Copy `.env.example` to `.env` and fill in the values:
-   \\\ash
-   cp .env.example .env
-   \\\
+pip install -e .
+```
 
-   Required variables:
-   \\\
-   # LiveKit Configuration
-   LIVEKIT_URL=<your-livekit-url>
-   LIVEKIT_API_KEY=<your-api-key>
-   LIVEKIT_API_SECRET=<your-api-secret>
+### 2. Create Neon Database
 
-   # MongoDB Configuration
-   MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net
-   MONGODB_DB_NAME=english_tutor
-   MONGODB_COLLECTION_NAME=sessions
+1. Go to [console.neon.tech](https://console.neon.tech) and create a project
+2. Copy the connection string (it looks like `postgresql://user:password@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require`)
+3. Run the schema in the **Neon SQL Editor** or via `psql`:
+   ```bash
+   psql <connection-string> -f init.sql
+   ```
 
-   # AWS Configuration
-   AWS_BUCKET_NAME=<your-bucket-name>
-   AWS_REGION=us-east-1
-   AWS_ACCESS_KEY_ID=<your-access-key>
-   AWS_SECRET_ACCESS_KEY=<your-secret-key>
+### 3. Start Redis (optional, for session caching)
 
-   # AI Service Keys
-   OPENAI_API_KEY=<your-openai-key>
-   DEEPGRAM_API_KEY=<your-deepgram-key>
-   CARTESIA_API_KEY=<your-cartesia-key>
-   \\\
+```bash
+docker compose up -d
+```
 
-5. **Run Token API**
-   \\\ash
-   uvicorn app:app --host 127.0.0.1 --port 8000 --reload
-   \\\
+### 4. Configure Environment
 
-6. **Run Agent Worker**
-   \\\ash
-   python main.py
-   \\\
+```bash
+cp .env.example .env
+```
 
-### Token Endpoint
+Required variables:
 
-The frontend voice session now uses the LiveKit-standard token endpoint format documented at:
-- `POST /api/token`
-- request fields: `room_name`, `participant_identity`, `participant_name`, `participant_metadata`, `participant_attributes`, `room_config`
-- response fields: `server_url`, `participant_token`
+```env
+# LiveKit
+LIVEKIT_URL=ws://localhost:7880
+LIVEKIT_API_KEY=<your-api-key>
+LIVEKIT_API_SECRET=<your-api-secret>
 
-The FastAPI implementation lives in `app.py`. Learner-specific practice information is attached during token creation through:
-- `participant_metadata`: full JSON payload for the tutor
-- `participant_attributes`: compact key/value fields like `language`, `level`, and `reason`
+# Neon (serverless PostgreSQL)
+NEON_DATABASE_URL=postgresql://user:password@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require
 
-The older compatibility route `POST /api/conversation/start` is still available, but the frontend now prefers `/api/token`.
+# AI Providers
+DEEPGRAM_API_KEY=<your-deepgram-key>
+CARTESIA_API_KEY=<your-cartesia-key>
+OPENAI_API_KEY=<your-openai-key>
+```
 
-## Project Structure
+### 5. Run the Agent
 
-\\\
-English-Tutor/Backend/
-├── main.py                          # Entry point for agent server
-├── pyproject.toml                   # Project configuration
-├── Dockerfile                       # Docker container setup
-├── README.md                        # This file
-├── .env                             # Environment variables (not in repo)
-├── doc/                             # Documentation
-│   └── COMPONENTS.md               # Detailed component documentation
-├── KMS/                             # Key management system
-│   └── logs/                        # Logging directory
-├── src/
-│   ├── __init__.py
-│   ├── prompt/                      # Prompt templates
-│   │   ├── __init__.py
-│   │   └── english.py              # English tutor system prompt
-│   ├── services/                    # Business logic services
-│   │   ├── __init__.py
-│   │   ├── database.py             # MongoDB operations
-│   │   ├── session.py              # Session management
-│   │   ├── latency_tracker.py      # Latency metrics tracking
-│   │   └── metrics.py              # Metric collection and display
-│   ├── voice_agent/                 # Agent implementations
-│   │   ├── __init__.py
-│   │   └── agents.py               # Agent classes
-│   └── utils/                       # Utility functions
-│       └── __init__.py
-└── recordings/                      # Audio recording output
-`
+```bash
+python main.py
+```
 
-## Configuration
+## Architecture
 
-### Environment Variables Reference
+```
+┌──────────────────────────────────────┐
+│         Voice I/O (Phone/App)        │
+└────────────────┬─────────────────────┘
+                 │ WebRTC
+                 ▼
+┌──────────────────────────────────────┐
+│        LiveKit Agent Server          │
+│  ┌──────────┐  ┌──────────┐         │
+│  │  Agent   │  │ Session  │         │
+│  │ (Riya)   │  │ Manager  │         │
+│  └────┬─────┘  └────┬─────┘         │
+└───────┼──────────────┼───────────────┘
+        │              │
+┌───────▼──────────────▼───────────────┐
+│         AI Services Layer            │
+│  Deepgram → Sarvam/OpenAI → Cartesia │
+└───────┬──────────────┬───────────────┘
+        │              │
+┌───────▼──────────────▼───────────────┐
+│         Data Layer                   │
+│  ┌──────────────┐  ┌────────────┐   │
+│  │ Neon (Neon)  │  │   Redis    │   │
+│  │ (serverless) │  │ (cache)    │   │
+│  └──────────────┘  └────────────┘   │
+└──────────────────────────────────────┘
+```
 
-\\\env
-# LiveKit Configuration
-LIVEKIT_URL=ws://localhost:7880           # LiveKit server URL
-LIVEKIT_API_KEY=your-api-key              # LiveKit API key
-LIVEKIT_API_SECRET=your-api-secret        # LiveKit API secret
+### Storage Strategy
 
-# MongoDB Configuration
-MONGODB_URI=mongodb://localhost:27017     # MongoDB connection string
-MONGODB_DB_NAME=english_tutor             # Database name
-MONGODB_COLLECTION_NAME=sessions          # Collection name
-
-# AWS S3 Configuration
-AWS_BUCKET_NAME=english-tutor-recordings  # S3 bucket for audio
-AWS_REGION=us-east-1                      # AWS region
-AWS_ACCESS_KEY_ID=your-access-key         # AWS access key
-AWS_SECRET_ACCESS_KEY=your-secret-key     # AWS secret key
-
-# AI Service Keys
-OPENAI_API_KEY=sk-...                     # OpenAI API key
-DEEPGRAM_API_KEY=your-deepgram-key        # Deepgram API key
-CARTESIA_API_KEY=your-cartesia-key        # Cartesia API key
-CARTESIA_MODEL_ID=9626c31c-...           # Cartesia model ID
-\\\
-
-## Components
-
-### 1. Voice Agent (src/voice_agent/agents.py)
-- **Assistant Factory:** Creates language-specific agents
-- **EnglishTutor:** Implements English tutoring logic
-- Inherits from LiveKit Agent with custom instructions
-
-### 2. Session Manager (src/services/session.py)
-- Manages participant context and session lifecycle
-- Stores session data in MongoDB
-- Maintains temporary conversation history
-- Tracks latency metrics
-
-### 3. Database Services (src/services/database.py)
-- MongoDB connection management
-- Credentials validation
-- Document insertion and retrieval
-- Automatic reconnection handling
-
-### 4. Metrics Collector (src/services/metrics.py)
-- Collects all LiveKit agent metrics
-- Displays metrics in formatted tables
-- Supports:
-  - TTS metrics (Text-to-Speech)
-  - STT metrics (Speech-to-Text)
-  - LLM metrics (Language Model)
-  - VAD metrics (Voice Activity Detection)
-  - EOUMetrics (End-of-Utterance)
-
-### 5. Latency Tracker (src/services/latency_tracker.py)
-- Tracks conversation latency components
-- Calculates total latency from components
-- Provides aggregated statistics
-
-For detailed component documentation, see [doc/COMPONENTS.md](doc/COMPONENTS.md).
-
-## Usage Examples
-
-### Starting a Tutoring Session
-
-\\\python
-from src.voice_agent.agents import Assistant
-from src.prompt.english import english_prompt
-from src.services.session import SessionManager
-
-# Create agent
-agent = Assistant()._tutor(
-    language="english",
-    instructions=english_prompt(user_info="name:John,age:25,english_level:intermediate"),
-    initial_ctx=None
-)
-
-# Manage session
-session_manager = SessionManager()
-session_manager.start("room_001", {
-    "identity": "user_123",
-    "name": "John",
-    "age": 25,
-    "english_level": "intermediate"
-})
-\\\
-
-### Tracking Latency
-
-\\\python
-# Track latency components as they arrive
-session_manager.track_latency(eou_delay=0.5)
-session_manager.track_latency(llm_ttft=0.3)
-latency_sample = session_manager.track_latency(tts_ttfb=0.2)
-
-# Get statistics
-stats = session_manager.get_latency_stats()
-print(f"Average Latency: {stats['average_latency']}s")
-\\\
-
-### Processing Metrics
-
-\\\python
-from src.services.metrics import ModelMetrics
-
-model_metrics = ModelMetrics()
-
-# Process metrics as they arrive
-model_metrics.process_metric(tts_metrics)
-model_metrics.process_metric(llm_metrics)
-
-# Print summary
-model_metrics.print_summary()
-\\\
-
-## Performance Metrics
-
-### Latency Components Formula
-\\\
-Total Conversation Latency = EOUDelay + LLM_TTFT + TTS_TTFB
-
-Where:
-- EOUDelay: End-of-utterance detection delay (VAD)
-- LLM_TTFT: Time-to-first-token from language model
-- TTS_TTFB: Time-to-first-byte from text-to-speech
-\\\
-
-### Expected Metrics
-| Component | Typical Range | Target |
-|-----------|---------------|--------|
-| EOUDelay | 200-600ms | < 500ms |
-| LLM_TTFT | 100-500ms | < 300ms |
-| TTS_TTFB | 50-200ms | < 100ms |
-| **Total** | **350-1300ms** | **< 900ms** |
+| Data | Store | Why |
+|------|-------|-----|
+| Active conversation history | Redis (2h TTL) | Fast read/write during call |
+| Completed session history | Neon | Durable persistence with evaluation |
+| Session cost per call | Neon | Cost tracking per AI service |
+| Doctors & availability | Neon | Schedule management |
+| Appointments (bookings) | Neon | CRUD for patient appointments |
 
 ## Database Schema
 
-### Sessions Collection (MongoDB)
-\\\json
-{
-  "_id": ObjectId,
-  "session_id": "room_001",
-  "participant_context": {
-    "identity": "user_123",
-    "name": "John Doe",
-    "age": 25,
-    "english_level": "intermediate"
-  },
-  "created_at": "2024-03-30T10:30:00.000Z",
-  "latency_metrics": {
-    "samples": [
-      {
-        "timestamp": "2024-03-30T10:30:05.000Z",
-        "total_latency": 1.0,
-        "components": {
-          "eou_delay": 0.5,
-          "llm_ttft": 0.3,
-          "tts_ttfb": 0.2
-        }
-      }
-    ],
-    "average_latency": 1.0,
-    "min_latency": 0.9,
-    "max_latency": 1.1,
-    "total_turns": 5
-  }
-}
-\\\
+### `doctors`
+Stores doctor profiles linked to departments.
 
-## Docker Deployment
+### `availability`
+Weekly recurring slots per doctor (day_of_week, start/end time).
 
-Build Docker image:
-\\\ash
-docker build -t english-tutor-backend:latest .
-\\\
+### `leave_tracker`
+Doctor time-off records with approval status.
 
-Run container:
-\\\ash
-docker run -d \\
-  --name english-tutor \\
-  -p 8081:8081 \\
-  --env-file .env \\
-  english-tutor-backend:latest
-\\\
+### `bookings`
+Appointment records with status (confirmed / rescheduled / cancelled / completed / no_show).
 
-## Troubleshooting
+### `today_visiting`
+Which doctors are available today, max slots, remaining availability.
 
-### Common Issues
+### `session_history`
+Per-call history with conversation summary, evaluation JSONB, duration, turn count, category, resolved flag.
 
-**1. MongoDB Connection Error**
-- Verify MONGODB_URI is correct
-- Check network connectivity to MongoDB
-- Ensure IP whitelist includes server IP
+### `session_cost`
+Per-call cost breakdown: STT seconds, LLM tokens, TTS characters, total cost per call.
 
-**2. API Key Errors**
-- Verify all AI service API keys are valid
-- Check API key expiration dates
-- Ensure sufficient credit/usage limits
+## Conversation Flow
 
-**3. Audio Quality Issues**
-- Check microphone input levels
-- Verify noise cancellation is functioning
-- Increase VAD confidence threshold if needed
+The agent supports 6 distinct conversation paths:
 
-**4. High Latency**
-- Check network connection quality
-- Review AI service response times
-- Verify server resources (CPU, memory)
+| # | Branch | Description |
+|---|--------|-------------|
+| 1 | **Book Appointment** | Select dept/doctor → pick slot → confirm patient info → book → send confirmation |
+| 2 | **Reschedule** | Lookup by phone → show current → pick new slot → reschedule → confirm |
+| 3 | **Cancel** | Lookup by phone → confirm intent → cancel → send confirmation |
+| 4 | **Check Status** | Lookup by phone → display doctor/date/time/status |
+| 5 | **Emergency** | Immediate escalation to human agent |
+| 6 | **General Inquiry** | Doctor info, departments, visiting hours, location, fees |
 
-## Contributing
+All non-emergency flows end with "Anything else?" — looping back or closing with a farewell.
 
-To contribute to this project:
+See [doc/conversation_flow.md](doc/conversation_flow.md) for the visual flowchart.
 
-1. Create feature branch: \git checkout -b feature/your-feature\
-2. Commit changes: \git commit -am 'Add your feature'\
-3. Push to branch: \git push origin feature/your-feature\
-4. Submit pull request
+## Project Structure
+
+```
+QI_Hospital_Assitant/
+├── main.py                      # Agent server entry point
+├── pyproject.toml               # Dependencies
+├── docker-compose.yml           # Redis container (Neon is serverless)
+├── init.sql                     # Database schema
+├── Dockerfile                   # App container
+├── .env.example                 # Environment template
+├── monitoring/                  # Observability config
+│   ├── prometheus.yml           # Prometheus scrape config
+│   ├── loki-config.yml          # Loki log storage config
+│   ├── promtail-config.yml      # Log shipping config
+│   └── grafana-datasources.yml  # Pre-configured data sources
+├── doc/
+│   ├── conversation_flow.md     # Flowchart (Mermaid)
+│   ├── conversation_flow.png    # Flowchart (image)
+│   ├── ARCHITECTURE.md          # System design
+│   ├── COMPONENTS.md            # Component reference
+│   ├── README.md                # Documentation index
+│   └── SETUP.md                 # Installation guide
+├── src/
+│   ├── prompt/                  # AI system prompts
+│   │   ├── english.py
+│   │   ├── hindi.py
+│   │   └── bengali.py
+│   ├── constants/               # Configuration classes
+│   ├── services/                # Business logic
+│   │   ├── database.py          # Neon (asyncpg via DSN)
+│   │   ├── session.py           # Session lifecycle
+│   │   ├── redis_client.py      # Redis cache wrapper
+│   │   └── hospital_data.py     # Mock appointment data
+│   ├── voice_agent/             # Agent implementations
+│   │   ├── agents.py            # ExiaEnglish/Hindi/Bengali
+│   │   ├── base_agent.py        # Base agent class
+│   │   ├── hospital_tools.py    # LLM function tools
+│   │   └── metrics.py           # Performance tracking
+│   └── utils/                   # Utilities
+└── templates/
+    └── conversation_setup.html  # Frontend test page
+```
+
+## Production Deployment
+
+### Agent Server Options
+
+The agent uses production-ready defaults from LiveKit Agents SDK:
+
+| Option | Value | Purpose |
+|--------|-------|---------|
+| `load_threshold` | `0.7` | Spawns new workers when CPU > 70% |
+| `drain_timeout` | `3600s` | Graceful shutdown up to 1 hour |
+| `num_idle_processes` | `0` (dev) / `4` (prod) | Pre-warmed standby workers |
+| `prometheus_port` | `8001` | Built-in `/metrics` endpoint (no custom server needed) |
+| `host` / `port` | `0.0.0.0:8081` | Health check endpoint |
+
+Credentials (`LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`) are read automatically from the environment — **do not hardcode them** in the constructor. LiveKit Cloud injects them at runtime.
+
+### Start the full stack
+
+```bash
+# Start Redis, Prometheus, Grafana, Loki, Promtail
+docker compose up -d
+
+# Run the agent (on host, not in Docker, so Prometheus can scrape it)
+python main.py
+```
+
+> Prometheus scrapes the agent at `host.docker.internal:8001/metrics`.
+
+### Build agent container (alternative)
+
+```bash
+docker build -t hospital-voice-agent .
+docker run -d \
+  --name hospital-agent \
+  --env-file .env \
+  --network host \
+  hospital-voice-agent
+```
+
+> **Neon** is serverless — no Docker infrastructure needed. Just set `NEON_DATABASE_URL` in `.env`.
+
+## Multilingual Support
+
+The agent auto-detects the caller's language and responds in the same language:
+
+| Language | STT | LLM | TTS |
+|----------|-----|-----|-----|
+| English | Deepgram Nova-3 (en-IN) | Sarvam 105B / GPT-4.1 Mini | Cartesia Sonic-3 |
+| Hindi | Deepgram Nova-3 (hi-Latn) | Sarvam 105B / GPT-4.1 Mini | Cartesia Sonic-3 |
+| Bengali | Sarvam Saaras v2.5 | Sarvam 105B / GPT-4.1 Mini | Sarvam Bulbul v3 |
+
+## API Tools (LLM-callable)
+
+The agent exposes 9 function tools that the LLM can invoke:
+
+| Tool | Purpose |
+|------|---------|
+| `check_availability` | Get open slots by department/doctor/date |
+| `book_appointment` | Book with patient details |
+| `reschedule_appointment` | Change date/time of existing |
+| `cancel_appointment` | Cancel by appointment ID |
+| `lookup_appointment` | Find appointments by phone |
+| `get_departments` | List all departments |
+| `get_doctors` | List doctors in a department |
+| `send_confirmation` | Send WhatsApp/SMS |
+| `escalate_to_human` | Transfer to human agent |
+
+## Performance Metrics
+
+| Component | Typical Range | Target |
+|-----------|---------------|--------|
+| EOU Delay (VAD) | 200-600ms | < 500ms |
+| LLM TTFT | 100-500ms | < 300ms |
+| TTS TTFB | 50-200ms | < 100ms |
+| **Total** | **350-1300ms** | **< 900ms** |
+
+## Observability
+
+The project includes a full observability stack via Docker:
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| **Prometheus** | `:9090` | Metrics collection from the agent (`/metrics` on port `8001`) |
+| **Grafana** | `:3000` | Dashboards for metrics + logs (admin/admin) |
+| **Loki** | `:3100` | Log aggregation via Promtail (Docker log driver) |
+| **Promtail** | `:9080` | Ships container logs to Loki |
+
+### Start the stack
+
+```bash
+docker compose up -d
+```
+
+This starts Redis, Prometheus, Loki, Promtail, and Grafana. The agent exposes Prometheus metrics on port `8001` via the **SDK's built-in endpoint** (no custom server needed).
+
+### SDK Built-in Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `lk_agents_proc_initialize_duration_seconds` | Histogram | Process init time |
+| `lk_agents_active_job_count` | Gauge | Active sessions across all workers |
+| `lk_agents_child_process_count` | Gauge | Total child processes |
+| `lk_agents_worker_load` | Gauge | Worker CPU load (0-1) |
+
+### Custom Application Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `hospital_active_sessions` | Gauge | Currently active calls |
+| `hospital_total_sessions_total` | Counter | Cumulative session count |
+| `hospital_stt_latency_seconds` | Histogram | STT duration |
+| `hospital_llm_latency_seconds` | Histogram | LLM time-to-first-token |
+| `hospital_tts_latency_seconds` | Histogram | TTS time-to-first-byte |
+
+### Access Grafana
+
+1. Open `http://localhost:3000`
+2. Login: `admin` / `admin`
+3. Data sources **Prometheus** and **Loki** are pre-configured
+4. Explore metrics in **Explore** tab or create custom dashboards
 
 ## License
 
-This project is proprietary and confidential.
-
----
-
-## Support
-
-For issues, questions, or suggestions:
-- 📧 Email: support@englishtutor.com
-- 🐛 Bug Reports: GitHub Issues
-- 📖 Documentation: See doc/ folder
-
----
-
-**Version:** 1.0.0  
-**Last Updated:** March 30, 2026  
-**Maintained By:** English Tutor Development Team
+Proprietary and confidential.

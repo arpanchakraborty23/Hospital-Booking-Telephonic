@@ -11,6 +11,7 @@ console = Console()
 
 
 class MetricsCollector:
+    # Aggregates per-turn, per-session, and end-of-call metrics for display and Prometheus
     def __init__(self):
         self.turn_metrics: dict[str, dict[str, float]] = defaultdict(dict)
         self.vad_metrics_list: list[dict] = []
@@ -19,7 +20,7 @@ class MetricsCollector:
         self.session_usage: dict[str, dict] = defaultdict(dict)
         self.turn_latency_history: list[dict] = []
 
-    def collect_stt(self, m: Any) -> None:
+    def collect_stt(self, m: Any) -> None:  # Store STT latency and audio duration
         self.stt_metrics_list.append({
             "audio_duration": m.audio_duration,
             "duration": m.duration,
@@ -27,7 +28,7 @@ class MetricsCollector:
             "timestamp": datetime.now().isoformat()
         })
 
-    def collect_vad(self, m: Any) -> None:
+    def collect_vad(self, m: Any) -> None:  # Record VAD idle time and inference stats
         self.vad_metrics_list.append({
             "idle_time": m.idle_time,
             "inference_duration_total": m.inference_duration_total,
@@ -35,14 +36,14 @@ class MetricsCollector:
             "timestamp": datetime.now().isoformat()
         })
 
-    def collect_eou(self, m: Any) -> None:
+    def collect_eou(self, m: Any) -> None:  # Track end-of-utterance delay per speech segment
         sid = getattr(m, "speech_id", None)
         if sid:
             self.turn_metrics[sid]["eou_delay"] = m.end_of_utterance_delay
             self.turn_metrics[sid]["transcription_delay"] = m.transcription_delay
             self.turn_metrics[sid]["on_user_turn_completed_delay"] = m.on_user_turn_completed_delay
 
-    def collect_llm(self, m: Any) -> None:
+    def collect_llm(self, m: Any) -> None:  # Capture LLM TTFT, tokens, tokens/sec per turn
         sid = getattr(m, "speech_id", None)
         if sid:
             self.turn_metrics[sid]["llm_ttft"] = m.ttft
@@ -52,7 +53,7 @@ class MetricsCollector:
             self.turn_metrics[sid]["llm_total_tokens"] = m.total_tokens
             self.turn_metrics[sid]["llm_tokens_per_second"] = m.tokens_per_second
 
-    def collect_tts(self, m: Any) -> None:
+    def collect_tts(self, m: Any) -> None:  # Store TTS TTFB, audio duration, character count per turn
         sid = getattr(m, "speech_id", None)
         if sid:
             self.turn_metrics[sid]["tts_ttfb"] = m.ttfb
@@ -60,7 +61,7 @@ class MetricsCollector:
             self.turn_metrics[sid]["tts_audio_duration"] = m.audio_duration
             self.turn_metrics[sid]["tts_characters_count"] = m.characters_count
 
-    def collect_interruption(self, m: Any) -> None:
+    def collect_interruption(self, m: Any) -> None:  # Log interruption events (user barge-in)
         self.interruption_metrics_list.append({
             "total_duration": m.total_duration,
             "prediction_duration": m.prediction_duration,
@@ -71,7 +72,7 @@ class MetricsCollector:
             "timestamp": datetime.now().isoformat()
         })
 
-    def update_session_usage(self, ev: Any) -> None:
+    def update_session_usage(self, ev: Any) -> None:  # Aggregate LLM token usage from SessionUsageUpdatedEvent
         for usage in ev.usage.model_usage:
             provider_model = f"{usage.provider}/{usage.model}"
             self.session_usage[provider_model] = {
@@ -81,7 +82,7 @@ class MetricsCollector:
                 "session_duration": usage.session_duration,
             }
 
-    def add_turn_latency(self, role: str, metrics: dict) -> None:
+    def add_turn_latency(self, role: str, metrics: dict) -> None:  # Per-turn E2E latency from conversation item metrics
         latency_entry = {
             "role": role,
             "timestamp": datetime.now().isoformat(),
@@ -96,7 +97,7 @@ class MetricsCollector:
             latency_entry["e2e_latency"] = metrics.get("e2e_latency")
         self.turn_latency_history.append(latency_entry)
 
-    def display_summary(self) -> None:
+    def display_summary(self) -> None:  # Rich console output of all collected metrics
         console.print(Panel("[bold cyan]Session Metrics Summary[/bold cyan]", box=ROUNDED))
         
         self._display_turn_metrics()

@@ -7,19 +7,26 @@ from livekit.agents.tts import FallbackAdapter as TTSFallBack
 from livekit.plugins import deepgram, sarvam, silero
 
 from . import BaseAgent
+from src.tools import tool_router
 from src.constants import ProviderConfig, get_models
+from src.prompt.english import english_prompt
+from src.prompt.hindi import hindi_prompt
+from src.prompt.bengali import bengali_prompt
 
-# Model Configuration
+# Pre-fetch model configs for all three supported languages
 english_models = get_models(language="en")
 hindi_models = get_models(language="hi")
 bengali_models = get_models(language="bn")
 
+# Singleton: all tool groups as Toolsets for dynamic loading
+_hospital_toolsets = [tool_router]
 
-class ExiaEnglish(BaseAgent):
-    def __init__(self, *, vad: silero.VAD = None, chat_ctx: ChatContext = None) -> None:
+
+class ExiaEnglish(BaseAgent):  # English-speaking agent with English STT/LLM/TTS models
+    def __init__(self, *, agent_name: str = "Riya", vad: silero.VAD = None, chat_ctx: ChatContext = None) -> None:
         self._vad = vad
         super().__init__(
-            instructions="You are a helpful voice AI assistant.",
+            instructions=english_prompt(agent_name=agent_name),
             stt=STTFallBack(
                 stt=[
                     english_models.stt,
@@ -48,16 +55,17 @@ class ExiaEnglish(BaseAgent):
                     ),
                 ]
             ),
+            tools=_hospital_toolsets,
             chat_ctx=chat_ctx,
             vad=vad,
         )
 
 
-class ExiaHindi(BaseAgent):
-    def __init__(self, *, vad: silero.VAD = None, chat_ctx: ChatContext = None) -> None:
+class ExiaHindi(BaseAgent):  # Hindi-speaking agent with Hindi STT/LLM/TTS models
+    def __init__(self, *, agent_name: str = "Riya", vad: silero.VAD = None, chat_ctx: ChatContext = None) -> None:
         self._vad = vad
         super().__init__(
-            instructions=hindi_models.instructions,
+            instructions=hindi_prompt(agent_name=agent_name),
             stt=STTFallBack(
                 stt=[
                     hindi_models.stt,
@@ -85,16 +93,17 @@ class ExiaHindi(BaseAgent):
                     ),
                 ]
             ),
+            tools=_hospital_toolsets,
             chat_ctx=chat_ctx,
             vad=vad,
         )
 
 
-class ExiaBengali(BaseAgent):
-    def __init__(self, *, vad: silero.VAD = None, chat_ctx: ChatContext = None) -> None:
+class ExiaBengali(BaseAgent):  # Bengali-speaking agent with Bengali STT/LLM/TTS models
+    def __init__(self, *, agent_name: str = "Riya", vad: silero.VAD = None, chat_ctx: ChatContext = None) -> None:
         self._vad = vad
         super().__init__(
-            instructions=bengali_models.instructions,
+            instructions=bengali_prompt(agent_name=agent_name),
             stt=STTFallBack(
                 stt=[
                     bengali_models.stt,
@@ -121,6 +130,7 @@ class ExiaBengali(BaseAgent):
                     ),
                 ]
             ),
+            tools=_hospital_toolsets,
             chat_ctx=chat_ctx,
             vad=vad,
         )

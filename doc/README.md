@@ -1,66 +1,46 @@
 ﻿# Documentation Index
 
-Welcome to the English Tutor Backend documentation. This folder contains comprehensive guides and reference materials.
+Welcome to the Hospital Voice Agent documentation.
 
 ## Documentation Files
 
-### 1. COMPONENTS.md
+### 1. conversation_flow.md
+Conversation Flow Diagram
+
+Mermaid flowchart showing the complete 6-branch conversation flow:
+- Book, Reschedule, Cancel, Check Status, Emergency, General Inquiry
+- Welcome greeting and closing script
+- "Anything else?" loop for non-emergency paths
+
+### 2. COMPONENTS.md
 Detailed Component Reference
 
-Complete documentation of all components, classes, and services used in the project:
-- Voice Agent Components (Assistant, EnglishTutor)
-- Session Management (SessionManager, ConversationLatencyTracker)
-- Database Services (MongoServices, MongoDBValidation)
-- Metrics Collection (ModelMetrics)
-- Prompt System (english_prompt)
-- LiveKit Agent Configuration
-- Data Models and schemas
-- Error Handling strategies
+Complete documentation of all components and services:
+- Voice Agent Components (ExiaEnglish, ExiaHindi, ExiaBengali)
+- Session Management (SessionManager)
+- Database Services (NeonServices, NeonPool)
+- Metrics Collection (MetricsCollector)
+- Hospital Tools (HospitalTools)
+- Prompt System (english.py, hindi.py, bengali.py)
 
-**Best for:** Understanding how individual components work and their APIs
-
----
-
-### 2. ARCHITECTURE.md
+### 3. ARCHITECTURE.md
 System Design & Architecture
 
-High-level architectural overview and design patterns:
-- System design overview with layered architecture
-- Design patterns (Factory, Singleton, Observer, Strategy, Decorator)
-- Data flow diagrams
-- Component responsibilities
-- State management
-- Configuration management
-- Error handling architecture
-- Performance optimization strategies
-- Scalability considerations
-- Security architecture
-- Extension points for customization
+High-level architectural overview:
+- Layered architecture with async pipelines
+- Design patterns (Factory, Singleton, Observer, Strategy)
+- Data flow diagrams (voice + persistence)
+- Neon schema design (7 tables: doctors, availability, bookings, etc.)
+- Redis caching strategy
+- Error handling with graceful degradation
 
-**Best for:** Understanding how the system is organized and why design decisions were made
-
----
-
-### 3. SETUP.md
+### 4. SETUP.md
 Installation & Configuration Guide
 
-Step-by-step guide to set up the project from scratch:
-- System requirements
-- Development environment setup
-- Dependencies installation
-- External services configuration
-  - LiveKit setup
-  - MongoDB configuration
-  - AWS S3 setup
-  - AI service API keys
-- Environment variables reference
-- Database setup with indexes
-- Running the application
-- Docker deployment
-- Troubleshooting common issues
-- Verification checklist
-
-**Best for:** Getting the project running on your machine for development or deployment
+Step-by-step setup guide:
+- Neon serverless database + Redis caching
+- Environment configuration
+- Running the agent
 
 ---
 
@@ -68,8 +48,8 @@ Step-by-step guide to set up the project from scratch:
 
 ### I want to...
 
-**...run the project locally**
-Start with SETUP.md
+**...see the conversation flow**
+Start with conversation_flow.md
 
 **...understand how a specific component works**
 Check COMPONENTS.md
@@ -77,11 +57,8 @@ Check COMPONENTS.md
 **...know why the system is designed this way**
 Read ARCHITECTURE.md
 
-**...add a new feature/component**
-Read ARCHITECTURE.md then COMPONENTS.md
-
-**...troubleshoot an issue**
-See Troubleshooting section in SETUP.md
+**...set up the project**
+Read SETUP.md (or root README.md)
 
 ---
 
@@ -89,18 +66,13 @@ See Troubleshooting section in SETUP.md
 
 doc/
 |- README.md              (Documentation Index)
+|- conversation_flow.md   (Conversation Flow Diagram)
+|- conversation_flow.png  (Conversation Flow Diagram - image)
 |- COMPONENTS.md          (Component Reference)
 |- ARCHITECTURE.md        (System Design)
 |- SETUP.md              (Installation Guide)
 
 ---
 
-## Support
-
-If you find unclear documentation, missing information, or errors,
-please report them to help improve the documentation.
-
----
-
-Documentation Version: 1.0
-Last Updated: March 30, 2026
+Documentation Version: 2.0
+Last Updated: July 5, 2026

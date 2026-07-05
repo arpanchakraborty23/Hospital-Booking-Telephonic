@@ -1,23 +1,12 @@
-import os
-
 from dotenv import load_dotenv
+
+from src.utils.main_utils import env, required_env
 
 load_dotenv()
 
 
-def env(name: str, default: str | None = None) -> str | None:
-    value = os.getenv(name)
-    return value if value not in (None, "") else default
-
-
-def required_env(name: str) -> str:
-    value = env(name)
-    if value is None:
-        raise RuntimeError(f"Missing required environment variable: {name}")
-    return value
-
-
 class LiveKitConfig:
+    # LiveKit server connection (Cloud injects these as env vars at runtime)
     livekit_url = env("LIVEKIT_URL")
     livekit_api_key = env("LIVEKIT_API_KEY")
     livekit_api_secret = env("LIVEKIT_API_SECRET")
@@ -25,24 +14,30 @@ class LiveKitConfig:
 
 
 class AWSConfig:
+    # AWS credentials for S3 recording storage
     aws_access_key = required_env("AWS_ACCESS_KEY_ID")
     aws_secret_key = required_env("AWS_SECRET_ACCESS_KEY")
     aws_region = required_env("AWS_REGION")
     aws_recording_bucket = required_env("AWS_BUCKET_NAME")
 
 
-class MongoConfig:
-    mongodb_uri = env("MONGODB_URI")
-    mongodb_name = env("MONGODB_DATABASE_NAME")
-    mongodb_session_collection = env("MONGODB_COLLECTION_NAME")
-    mongodb_user_collection = env("MONGODB_USER_COLLECTION")
-
+class NeonConfig:
+    # Serverless PostgreSQL connection string
+    database_url = env("NEON_DATABASE_URL")
 
 
 class ProviderConfig:
+    # Third-party AI provider API keys (all required)
     aws_bedrock_api_key = required_env("AWS_BEDROCK_API_KEY")
     sarvam_api_key = required_env("SARVAM_API_KEY")
     deepgram_api_key = required_env("DEEPGRAM_API_KEY")
     Cartesia_api_key = required_env("CARTESIA_API_KEY")
 
-
+@dataclass(frozen=True)
+class Credentials:
+    # Aggregates all config classes for single import point
+    livekit: type[LiveKitConfig] = LiveKitConfig
+    aws: type[AWSConfig] = AWSConfig
+    neon: type[NeonConfig] = NeonConfig
+    providers: type[ProviderConfig] = ProviderConfig
+    models: type[ModelEnv] = ModelEnv
