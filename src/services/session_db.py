@@ -12,7 +12,7 @@ async def get_patient_history(phone: str, limit: int = 5) -> list[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT session_id, patient_name, language, conversation_summary,
+            SELECT session_id, language, conversation_summary,
                    category, resolved, created_at
             FROM session_history
             WHERE patient_phone = $1
@@ -29,8 +29,8 @@ async def insert_session_history(data: dict) -> dict:
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            INSERT INTO session_history (session_id, patient_phone, patient_name, language, conversation_summary, evaluation, duration_seconds, turn_count, resolved, category)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
+            INSERT INTO session_history (session_id, patient_phone, language, conversation_summary, evaluation, duration_seconds, turn_count, resolved, category)
+            VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
             ON CONFLICT (session_id)
             DO UPDATE SET conversation_summary = EXCLUDED.conversation_summary,
                           evaluation = EXCLUDED.evaluation,
@@ -41,7 +41,6 @@ async def insert_session_history(data: dict) -> dict:
             """,
             data["session_id"],
             data.get("patient_phone"),
-            data.get("patient_name"),
             data.get("language"),
             data.get("conversation_summary"),
             json.dumps(data.get("evaluation", {})),

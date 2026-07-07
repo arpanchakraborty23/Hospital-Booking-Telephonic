@@ -13,6 +13,7 @@ from src.services.hospital_data import (
 )
 from src.services.database import NeonPool
 from src.utils.main_utils import rows_to_dicts
+from src.utils.session_ctx import get_session_id
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ async def check_availability(department: str, doctor: Optional[str] = None, date
 
 
 @function_tool()
-async def book_appointment(patient_name: str, phone: str, department: str, doctor: str, date_str: str, time: str) -> dict:
+async def book_appointment(patient_name: str, phone: str, department: str, doctor: str, date_str: str, time: str, language: str = "en") -> dict:
     """Book a new appointment for a patient. Returns confirmation with appointment_id.
 
     Args:
@@ -67,6 +68,7 @@ async def book_appointment(patient_name: str, phone: str, department: str, docto
         phone: Patient's phone number with country code (e.g., +919876543210)
         department: Department name
         doctor: Doctor's name
+        language: Patient's preferred language code (en/hi/bn)
         date_str: Appointment date in YYYY-MM-DD format
         time: Appointment time in HH:MM format (e.g., 10:00, 14:30)
     """
@@ -80,11 +82,12 @@ async def book_appointment(patient_name: str, phone: str, department: str, docto
             doctor_id = doctor_row["id"] if doctor_row else None
             import uuid
             booking_id = f"APT{uuid.uuid4().hex[:6].upper()}"
+            session_id = get_session_id()
             row = await conn.fetchrow(
-                """INSERT INTO bookings (booking_id, patient_name, patient_phone, doctor_id, department, appointment_date, appointment_time, status)
-                   VALUES ($1, $2, $3, $4, $5, $6::date, $7::time, 'confirmed')
+                """INSERT INTO bookings (booking_id, session_id, patient_name, patient_phone, language, doctor_id, department, appointment_date, appointment_time, status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8::date, $9::time, 'confirmed')
                    RETURNING *""",
-                booking_id, patient_name, phone, doctor_id, department, date_str, time,
+                booking_id, session_id, patient_name, phone, language, doctor_id, department, date_str, time,
             )
             if row:
                 return dict(row)

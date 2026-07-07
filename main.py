@@ -1,16 +1,18 @@
 import asyncio
 import logging
 
-from prometheus_client import Counter, Gauge, Histogram
-
 from livekit import agents, rtc
-from livekit.agents import AgentServer, AgentSession, room_io, JobProcess, metrics, UserStateChangedEvent, MetricsCollectedEvent, SessionUsageUpdatedEvent
+from livekit.agents import AgentServer, AgentSession, room_io, JobProcess, metrics, UserStateChangedEvent, MetricsCollectedEvent
+from livekit.agents.voice import SessionUsageUpdatedEvent
 from livekit.agents import ChatContext, JobContext, ServerEnvOption
+from livekit.agents.metrics import STTMetrics, LLMMetrics, TTSMetrics
 from livekit.plugins import noise_cancellation, silero
-from livekit.agents.metrics import EOUMetrics, LLMMetrics, TTSMetrics, STTMetrics, VADMetrics, InterruptionMetrics
 
+from src.monitoring import active_sessions, total_sessions, observe_stt, observe_llm, observe_tts, start_cpu_monitoring
+from src.services.cost import persist_cost
+from src.utils.session_ctx import set_session_id
 from src.services.database import NeonPool
-from src.voice_agent import ExiaHindi, ExiaEnglish, ExiaBengali
+from src.voice_agent import RiyaEnglish, RiyaHindi, RiyaBengali
 from src.tools.hospital_tools import HospitalTools
 from src.services import SessionManager
 from src.voice_agent import MetricsCollector
@@ -18,17 +20,9 @@ from src.constants.config import LiveKitConfig
 
 logger = logging.getLogger(__name__)
 
-# Singleton instances shared across all sessions
 session_manager = SessionManager()
 metrics_collector = MetricsCollector()
 agent_name = LiveKitConfig.livekit_agent_name or "Riya"
-
-# Custom application metrics (complement SDK's built-in metrics)
-active_sessions = Gauge("hospital_active_sessions", "Currently active voice sessions")
-total_sessions = Counter("hospital_total_sessions_total", "Total sessions handled")
-stt_latency = Histogram("hospital_stt_latency_seconds", "STT latency", buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0])
-llm_latency = Histogram("hospital_llm_latency_seconds", "LLM latency", buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0])
-tts_latency = Histogram("hospital_tts_latency_seconds", "TTS latency", buckets=[0.05, 0.1, 0.25, 0.5, 1.0, 2.0])
 
 
 server = AgentServer(
@@ -41,14 +35,14 @@ server = AgentServer(
     port=8081,
 )
 
-async def get_bookings_by_phone(phone: str) -> list[dict]:
+async def get_booking_by_phone(phone: str) -> dict | None:
     pool = await NeonPool.get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT * FROM bookings WHERE patient_phone = $1 ORDER BY appointment_date DESC",
+        row = await conn.fetchrow(
+            "SELECT * FROM bookings WHERE patient_phone = $1 ORDER BY appointment_date DESC LIMIT 1",
             phone,
         )
-        return [dict(r) for r in rows]
+        return dict(row) if row else None
 
 
 def prewarm(proc: JobProcess):
@@ -58,7 +52,7 @@ server.setup_fnc = prewarm
 
 
 
-@server.rtc_session()
+@server.rtc_session(agent_name="qj-hospital")
 async def my_agent(ctx: JobContext):
 
     inactivity_task: asyncio.Task | None = None
@@ -66,6 +60,7 @@ async def my_agent(ctx: JobContext):
     language = "en"
 
     ctx.log_context_fields = {"room_name": ctx.room.name}
+    set_session_id(ctx.room.name)
 
     await ctx.connect()
 
@@ -85,13 +80,12 @@ async def my_agent(ctx: JobContext):
         caller_id = participant.identity
         phone_number = participant.attributes.get('sip.phoneNumber', 'Unknown')
 
-    participant_details = await get_bookings_by_phone(phone_number) if is_sip_call else None
-
+    participant_details = await get_booking_by_phone(phone_number) if is_sip_call else None
 
     participant_context = {
         "identity": participant.identity,
-        "name": participant_details.name if participant_details else participant.name,
-        "language": participant_details.language if participant_details else language,
+        "name": participant_details["patient_name"] if participant_details else participant.name,
+        "language": participant_details["language"] if participant_details else language,
     }
     logger.info("Participant context: %s", participant_context)
 
@@ -101,14 +95,14 @@ async def my_agent(ctx: JobContext):
     # Inject long-term patient history into chat context so agent knows past interactions
     chat_ctx = ChatContext()
     chat_ctx.add_message(role="system", content=participant_context)
-    logger.info("Injected %d past sessions for %s", participant_context["identity"])
+    logger.info("Injected participant context for %s", participant_context["identity"])
 
 
     # Create language-specific agent with fixed name (never receives participant.name)
     agent_setup = {
-        "en": ExiaEnglish,
-        "bn": ExiaBengali,
-        "hi": ExiaHindi,
+        "en": RiyaEnglish,
+        "bn": RiyaBengali,
+        "hi": RiyaHindi,
     }
     agent = agent_setup[language](
         agent_name=agent_name,
@@ -171,28 +165,16 @@ async def my_agent(ctx: JobContext):
 
 
 
-    # Dispatch table avoids if/elif chain — maps metric type to (collect_fn, observe_fn)
-    _METRIC_HANDLERS: dict[type, tuple] = {
-        STTMetrics: (metrics_collector.collect_stt, lambda m: stt_latency.observe(m.duration)),
-        VADMetrics: (metrics_collector.collect_vad, None),
-        EOUMetrics: (metrics_collector.collect_eou, None),
-        LLMMetrics: (metrics_collector.collect_llm, lambda m: llm_latency.observe(m.ttft)),
-        TTSMetrics: (metrics_collector.collect_tts, lambda m: tts_latency.observe(m.ttfb)),
-        InterruptionMetrics: (metrics_collector.collect_interruption, None),
-    }
-
-    async def _handle_metric(m):
-        handler = _METRIC_HANDLERS.get(type(m))
-        if handler:
-            collect_fn, observe_fn = handler
-            collect_fn(m)
-            if observe_fn:
-                observe_fn(m)
-
     @session.on("metrics_collected")
     def _on_metrics_collected(ev: MetricsCollectedEvent):
         metrics.log_metrics(ev.metrics)
-        asyncio.get_running_loop().create_task(_handle_metric(ev.metrics))
+        m = ev.metrics
+        if isinstance(m, STTMetrics):
+            observe_stt(m)
+        elif isinstance(m, LLMMetrics):
+            observe_llm(m)
+        elif isinstance(m, TTSMetrics):
+            observe_tts(m)
 
     @session.on("session_usage_updated")
     def _on_session_usage_updated(ev: SessionUsageUpdatedEvent):
@@ -218,6 +200,8 @@ async def my_agent(ctx: JobContext):
     async def end_handler():
         try:
             active_sessions.dec()
+            report = ctx.make_session_report()
+            await persist_cost(ctx.room.name, report.to_dict())
             await session_manager.end_session()
             logger.info(f"Session for room {ctx.room.name} ended and cleaned up.")
         except Exception as e:
@@ -227,4 +211,5 @@ async def my_agent(ctx: JobContext):
 
 
 if __name__ == "__main__":
+    start_cpu_monitoring()
     agents.cli.run_app(server)

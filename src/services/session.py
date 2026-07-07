@@ -95,7 +95,6 @@ class SessionManager:
                 await insert_session_history({
                     "session_id": self.session_id,
                     "patient_phone": participant_context.get("identity"),
-                    "patient_name": participant_context.get("name"),
                     "language": participant_context.get("language"),
                     "conversation_summary": summary[:1000],
                     "evaluation": {},

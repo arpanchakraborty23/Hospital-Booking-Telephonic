@@ -22,7 +22,7 @@ bengali_models = get_models(language="bn")
 _hospital_toolsets = [tool_router]
 
 
-class ExiaEnglish(BaseAgent):  # English-speaking agent with English STT/LLM/TTS models
+class RiyaEnglish(BaseAgent):  # English-speaking agent with English STT/LLM/TTS models
     def __init__(self, *, agent_name: str = "Riya", vad: silero.VAD = None, chat_ctx: ChatContext = None) -> None:
         self._vad = vad
         super().__init__(
@@ -61,7 +61,7 @@ class ExiaEnglish(BaseAgent):  # English-speaking agent with English STT/LLM/TTS
         )
 
 
-class ExiaHindi(BaseAgent):  # Hindi-speaking agent with Hindi STT/LLM/TTS models
+class RiyaHindi(BaseAgent):  # Hindi-speaking agent with Hindi STT/LLM/TTS models
     def __init__(self, *, agent_name: str = "Riya", vad: silero.VAD = None, chat_ctx: ChatContext = None) -> None:
         self._vad = vad
         super().__init__(
@@ -99,7 +99,7 @@ class ExiaHindi(BaseAgent):  # Hindi-speaking agent with Hindi STT/LLM/TTS model
         )
 
 
-class ExiaBengali(BaseAgent):  # Bengali-speaking agent with Bengali STT/LLM/TTS models
+class RiyaBengali(BaseAgent):  # Bengali-speaking agent with Bengali STT/LLM/TTS models
     def __init__(self, *, agent_name: str = "Riya", vad: silero.VAD = None, chat_ctx: ChatContext = None) -> None:
         self._vad = vad
         super().__init__(

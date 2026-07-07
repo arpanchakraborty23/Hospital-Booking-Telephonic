@@ -42,8 +42,10 @@ CREATE TABLE IF NOT EXISTS leave_tracker (
 CREATE TABLE IF NOT EXISTS bookings (
     id SERIAL PRIMARY KEY,
     booking_id VARCHAR(50) UNIQUE NOT NULL,
+    session_id VARCHAR(255),
     patient_name VARCHAR(255) NOT NULL,
     patient_phone VARCHAR(50) NOT NULL,
+    language VARCHAR(10) DEFAULT 'en',
     doctor_id INTEGER REFERENCES doctors(id),
     department VARCHAR(255),
     appointment_date DATE NOT NULL,
@@ -54,8 +56,8 @@ CREATE TABLE IF NOT EXISTS bookings (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- 5. TODAY'S VISITING DOCTORS
-CREATE TABLE IF NOT EXISTS today_visiting (
+-- 5. DOCTOR VISITS (daily visiting schedule)
+CREATE TABLE IF NOT EXISTS doctor_visits (
     id SERIAL PRIMARY KEY,
     doctor_id INTEGER NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
     visit_date DATE NOT NULL,
@@ -72,7 +74,6 @@ CREATE TABLE IF NOT EXISTS session_history (
     id SERIAL PRIMARY KEY,
     session_id VARCHAR(255) UNIQUE NOT NULL,
     patient_phone VARCHAR(50),
-    patient_name VARCHAR(255),
     language VARCHAR(10),
     conversation_summary TEXT,
     evaluation JSONB DEFAULT '{}',
@@ -104,6 +105,6 @@ CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings (appointment_date);
 CREATE INDEX IF NOT EXISTS idx_bookings_doctor ON bookings (doctor_id);
 CREATE INDEX IF NOT EXISTS idx_availability_doctor ON availability (doctor_id);
 CREATE INDEX IF NOT EXISTS idx_leave_doctor ON leave_tracker (doctor_id);
-CREATE INDEX IF NOT EXISTS idx_today_visiting_date ON today_visiting (visit_date);
+CREATE INDEX IF NOT EXISTS idx_doctor_visits_date ON doctor_visits (visit_date);
 CREATE INDEX IF NOT EXISTS idx_session_history_phone ON session_history (patient_phone);
 CREATE INDEX IF NOT EXISTS idx_session_cost_session ON session_cost (session_id);

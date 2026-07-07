@@ -14,4 +14,5 @@ dependencies = [
     "uvicorn>=0.42.0",
     "redis>=7.4.0",
     "prometheus-client>=0.21.0",
+    "psutil>=7.0.0",
 ]
