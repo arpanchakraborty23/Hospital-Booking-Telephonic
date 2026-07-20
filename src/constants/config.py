@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+from dataclasses import dataclass
 
 from src.utils.main_utils import env, required_env
 
@@ -40,4 +41,4 @@ class Credentials:
     aws: type[AWSConfig] = AWSConfig
     neon: type[NeonConfig] = NeonConfig
     providers: type[ProviderConfig] = ProviderConfig
-    models: type[ModelEnv] = ModelEnv
+  

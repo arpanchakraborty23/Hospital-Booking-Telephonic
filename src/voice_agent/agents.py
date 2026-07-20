@@ -134,3 +134,18 @@ class RiyaBengali(BaseAgent):  # Bengali-speaking agent with Bengali STT/LLM/TTS
             chat_ctx=chat_ctx,
             vad=vad,
         )
+
+
+def get_agent_class(language: str) -> type[BaseAgent]:
+    """
+    Return the appropriate agent class based on the specified language.
+    """
+    language = language.lower()
+    if language == "en" or language == "en-IN":
+        return RiyaEnglish
+    elif language == "hi" or language == "hi-IN":
+        return RiyaHindi
+    elif language == "bn" or language == "bn-IN":
+        return RiyaBengali
+    else:
+        raise ValueError(f"Unsupported language: {language}")

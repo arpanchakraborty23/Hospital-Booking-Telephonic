@@ -2,13 +2,13 @@
   "title": "Hospital Agent",
   "tags": ["hospital", "agent"],
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "timezone": "browser",
   "editable": true,
   "refresh": "10s",
   "panels": [
     {
-      "gridPos": { "h": 8, "w": 3, "x": 0, "y": 0 },
+      "gridPos": { "h": 6, "w": 2, "x": 0, "y": 0 },
       "type": "stat",
       "title": "Active Sessions",
       "targets": [
@@ -31,7 +31,7 @@
       }
     },
     {
-      "gridPos": { "h": 8, "w": 3, "x": 3, "y": 0 },
+      "gridPos": { "h": 6, "w": 2, "x": 2, "y": 0 },
       "type": "stat",
       "title": "Total Sessions",
       "targets": [
@@ -49,7 +49,7 @@
       }
     },
     {
-      "gridPos": { "h": 8, "w": 3, "x": 6, "y": 0 },
+      "gridPos": { "h": 6, "w": 2, "x": 4, "y": 0 },
       "type": "gauge",
       "title": "CPU Usage",
       "targets": [
@@ -74,7 +74,7 @@
       }
     },
     {
-      "gridPos": { "h": 8, "w": 3, "x": 9, "y": 0 },
+      "gridPos": { "h": 6, "w": 2, "x": 6, "y": 0 },
       "type": "gauge",
       "title": "Memory Usage",
       "targets": [
@@ -99,7 +99,7 @@
       }
     },
     {
-      "gridPos": { "h": 8, "w": 4, "x": 12, "y": 0 },
+      "gridPos": { "h": 6, "w": 3, "x": 8, "y": 0 },
       "type": "stat",
       "title": "Memory RSS",
       "targets": [
@@ -117,7 +117,58 @@
       }
     },
     {
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "gridPos": { "h": 6, "w": 2, "x": 11, "y": 0 },
+      "type": "stat",
+      "title": "Threads",
+      "targets": [
+        {
+          "expr": "hospital_process_threads",
+          "legendFormat": "Threads",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 6, "w": 2, "x": 13, "y": 0 },
+      "type": "stat",
+      "title": "Open FDs",
+      "targets": [
+        {
+          "expr": "hospital_process_open_fds",
+          "legendFormat": "FDs",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 6, "w": 2, "x": 15, "y": 0 },
+      "type": "stat",
+      "title": "Connections",
+      "targets": [
+        {
+          "expr": "hospital_process_connections",
+          "legendFormat": "Conns",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 6, "w": 9, "x": 17, "y": 0 },
       "type": "timeseries",
       "title": "Active Sessions Over Time",
       "targets": [
@@ -139,7 +190,7 @@
       }
     },
     {
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 6 },
       "type": "timeseries",
       "title": "STT Latency (p50 / p95 / p99)",
       "targets": [
@@ -166,7 +217,7 @@
       }
     },
     {
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 6 },
       "type": "timeseries",
       "title": "LLM TTFT (p50 / p95 / p99)",
       "targets": [
@@ -193,7 +244,7 @@
       }
     },
     {
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 6 },
       "type": "timeseries",
       "title": "TTS TTFB (p50 / p95 / p99)",
       "targets": [
@@ -220,7 +271,7 @@
       }
     },
     {
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 14 },
       "type": "timeseries",
       "title": "CPU Usage",
       "targets": [
@@ -237,7 +288,7 @@
       }
     },
     {
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 14 },
       "type": "timeseries",
       "title": "Memory Usage",
       "targets": [
@@ -254,7 +305,7 @@
       }
     },
     {
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 14 },
       "type": "timeseries",
       "title": "Memory RSS",
       "targets": [
@@ -267,6 +318,121 @@
       "fieldConfig": {
         "defaults": {
           "unit": "bytes"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 22 },
+      "type": "timeseries",
+      "title": "Application Disk I/O",
+      "targets": [
+        {
+          "expr": "rate(hospital_process_disk_read_bytes_total[1m])",
+          "legendFormat": "Read",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(hospital_process_disk_write_bytes_total[1m])",
+          "legendFormat": "Write",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 22 },
+      "type": "timeseries",
+      "title": "Application Network I/O",
+      "targets": [
+        {
+          "expr": "rate(hospital_process_network_bytes_sent_total[1m])",
+          "legendFormat": "Sent",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(hospital_process_network_bytes_recv_total[1m])",
+          "legendFormat": "Received",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 22 },
+      "type": "timeseries",
+      "title": "Threads / FDs / Connections",
+      "targets": [
+        {
+          "expr": "hospital_process_threads",
+          "legendFormat": "Threads",
+          "refId": "A"
+        },
+        {
+          "expr": "hospital_process_open_fds",
+          "legendFormat": "FDs",
+          "refId": "B"
+        },
+        {
+          "expr": "hospital_process_connections",
+          "legendFormat": "Connections",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 30 },
+      "type": "timeseries",
+      "title": "LLM Token Usage",
+      "targets": [
+        {
+          "expr": "rate(hospital_llm_input_tokens_total[5m])",
+          "legendFormat": "Input tokens/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(hospital_llm_output_tokens_total[5m])",
+          "legendFormat": "Output tokens/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 30 },
+      "type": "timeseries",
+      "title": "TTS Characters / STT Audio Duration",
+      "targets": [
+        {
+          "expr": "rate(hospital_tts_characters_total[5m])",
+          "legendFormat": "Chars/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(hospital_stt_audio_duration_seconds_total[5m])",
+          "legendFormat": "Audio dur/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
         }
       }
     }
