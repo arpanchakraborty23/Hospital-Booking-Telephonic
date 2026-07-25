@@ -32,7 +32,7 @@ server = AgentServer(
     drain_timeout=3600,
     num_idle_processes=ServerEnvOption(dev_default=0, prod_default=4),
     log_level=ServerEnvOption(dev_default="DEBUG", prod_default="INFO"),
-    prometheus_port=8001,
+    prometheus_port=8081,
     host="0.0.0.0",
     port=8081,
 )
@@ -113,8 +113,8 @@ async def my_agent(ctx: JobContext):
         chat_ctx=chat_ctx,
     )
 
-    # Scope tools — start with only the router toolset; domain tools loaded on demand by tool_router
-    agent.update_tools([HospitalTools.get_toolset("router")])
+    # Scope tools — start with only the router toolset; domain tools loaded on demand by user_intent / tool_router
+    await agent.update_tools([HospitalTools.get_toolset("router")])
 
     session = AgentSession(
         vad=silero.VAD.load(),
@@ -127,7 +127,7 @@ async def my_agent(ctx: JobContext):
                 
     async def user_presence_task():
         # try to ping the user 3 times, if we get no answer, close the session
-        for attempt in range(2):
+        for attempt in range(3):
             await session.generate_reply(
                 instructions=(
                     "The user has been inactive. Politely check if the user is still present."

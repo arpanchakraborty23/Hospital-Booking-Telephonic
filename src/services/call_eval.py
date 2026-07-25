@@ -1,6 +1,5 @@
 import json
 import logging
-from typing import Optional
 
 from langchain_aws import ChatBedrockConverse
 from langchain_core.messages import HumanMessage, SystemMessage

@@ -8,6 +8,7 @@ from src.tools import (
     lookup_appointment,
     get_departments,
     get_doctors,
+    get_hospital_info,
     send_confirmation,
     escalate_to_human,
     tool_router,
@@ -16,7 +17,7 @@ from src.tools import (
 
 class HospitalTools:
     _router = Toolset(id="router", tools=[tool_router])
-    _directory = Toolset(id="directory", tools=[get_departments, get_doctors])
+    _directory = Toolset(id="directory", tools=[get_departments, get_doctors, get_hospital_info])
     _appointments = Toolset(id="appointments", tools=[
         check_availability,
         book_appointment,

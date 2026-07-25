@@ -1,10 +1,9 @@
 from collections.abc import AsyncIterable
-from typing import Literal, Optional
+from typing import Literal
 
 
 from livekit import rtc
 from livekit.agents import Agent, ModelSettings, llm, stt
-from livekit.agents.llm import ChatContext
 
 
 from src.prompt import get_prompt
@@ -70,6 +69,27 @@ class BaseAgent(Agent):
 
         await self.update_instructions(prompt)
 
+        # Auto-load the matching toolset so the LLM doesn't need a separate tool_router call
+        intent_to_toolset = {
+            "Booking": "appointments",
+            "Rescheduling": "appointments",
+            "Cancellation": "appointments",
+            "Status_Check": "appointments",
+            "Emergency": "communication",
+            "General_Inquiry": "directory",
+        }
+        target = intent_to_toolset.get(labels[0])
+        if target:
+            from src.tools.hospital_tools import HospitalTools
+            from src.tools.router import state as router_state
+
+            router_ts = HospitalTools.get_toolset("router")
+            target_ts = HospitalTools.get_toolset(target)
+            await self.update_tools([router_ts, target_ts])
+
+            # Keep router's in-memory state in sync so check_tools reports correctly
+            router_state.set("loaded_tool_groups", [target])
+
         await self.session.generate_reply()  # Trigger a new LLM response with the updated prompt
 
     @llm.function_tool
@@ -78,7 +98,7 @@ class BaseAgent(Agent):
         Update the prompt for the LLM. This function can be called from within the LLM context.
         """
         agent_class = get_agent_class(language)
-        self.session.update_agent(agent_class(instructions=instructions, vad=self._vad, chat_ctx=self.session.chat_ctx))
+        self.session.update_agent(agent_class(instructions=instructions, vad=self._vad, chat_ctx=self.chat_ctx))
         await self.session.generate_reply()  # Trigger a new LLM response with the updated prompt
 
 

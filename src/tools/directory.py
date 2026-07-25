@@ -1,5 +1,4 @@
 import asyncio
-import logging
 
 from livekit.agents import function_tool
 
