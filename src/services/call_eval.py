@@ -5,6 +5,7 @@ from langchain_aws import ChatBedrockConverse
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.constants.config import AWSConfig, EvalConfig
+from src.monitoring import observe_eval, observe_error
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +71,13 @@ class CallEvaluation:
             ])
             result = self._parse_response(response.content)
             logger.info("LLM evaluation completed for %s", self._phone_number)
+            metrics = result.get("metrics", {})
+            for metric, value in metrics.items():
+                if isinstance(value, (int, float)):
+                    observe_eval(metric, value)
             return result
         except Exception as e:
+            observe_error("llm_eval")
             logger.error("LLM evaluation failed, using fallback: %s", e)
             return self._fallback_summary(messages)
 

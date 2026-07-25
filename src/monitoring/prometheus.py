@@ -17,6 +17,44 @@ llm_output_tokens = Counter("hospital_llm_output_tokens_total", "LLM output toke
 tts_characters = Counter("hospital_tts_characters_total", "TTS characters synthesized", ["provider", "model"])
 stt_audio_duration = Counter("hospital_stt_audio_duration_seconds_total", "STT audio duration processed", ["provider", "model"])
 
+# E2E latency per turn
+e2e_latency = Histogram("hospital_e2e_latency_seconds", "End-to-end turn latency", buckets=[0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0])
+
+# Session duration
+session_duration = Histogram("hospital_session_duration_seconds", "Session duration", buckets=[30, 60, 120, 300, 600, 1800])
+
+# Session language
+session_language = Counter("hospital_session_language_total", "Sessions by language", ["language"])
+
+# Intent classification
+intent_classification = Counter("hospital_intent_total", "Intent classifications", ["intent"])
+
+# Tool call tracking
+tool_calls = Counter("hospital_tool_calls_total", "Tool calls", ["tool_name", "status"])
+tool_latency = Histogram("hospital_tool_latency_seconds", "Tool call latency", ["tool_name"], buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0])
+
+# Error tracking
+errors_total = Counter("hospital_errors_total", "Errors by category", ["type"])
+
+# Cost tracking
+cost_total = Counter("hospital_cost_total", "Cumulative cost", ["type"])
+
+# DB query tracking
+db_queries = Counter("hospital_db_queries_total", "DB queries by operation and table", ["operation", "table"])
+db_query_latency = Histogram("hospital_db_query_latency_seconds", "DB query latency", ["operation"], buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0])
+
+# Redis tracking
+redis_operations = Counter("hospital_redis_operations_total", "Redis operations", ["operation"])
+redis_latency = Histogram("hospital_redis_latency_seconds", "Redis operation latency", ["operation"], buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25])
+
+# Evaluation scores (1-10 range)
+eval_score = Gauge("hospital_eval_score", "Latest evaluation score by metric", ["metric"])
+eval_total = Counter("hospital_eval_total", "Total evaluations processed")
+
+# SIP call tracking
+sip_calls = Counter("hospital_sip_calls_total", "SIP calls", ["status"])
+returning_callers = Gauge("hospital_returning_callers", "Number of returning callers")
+
 process_cpu_percent = Gauge("hospital_process_cpu_percent", "Agent process CPU usage %")
 process_memory_percent = Gauge("hospital_process_memory_percent", "Agent process memory usage %")
 process_memory_rss_bytes = Gauge("hospital_process_memory_rss_bytes", "Agent process RSS memory bytes")
@@ -80,3 +118,47 @@ def observe_llm(m: Any) -> None:
 def observe_tts(m: Any) -> None:
     tts_latency.observe(m.ttfb)
     tts_characters.labels(provider=getattr(m, "provider", "unknown"), model=getattr(m, "model", "unknown")).inc(m.characters_count)
+
+
+def observe_tool_call(tool_name: str, latency: float, status: str = "success") -> None:
+    tool_calls.labels(tool_name=tool_name, status=status).inc()
+    tool_latency.labels(tool_name=tool_name).observe(latency)
+
+
+def observe_intent(intent: str | None) -> None:
+    intent_classification.labels(intent=intent or "unknown").inc()
+
+
+def observe_error(error_type: str) -> None:
+    errors_total.labels(type=error_type).inc()
+
+
+def observe_db(operation: str, table: str, latency: float) -> None:
+    db_queries.labels(operation=operation, table=table).inc()
+    db_query_latency.labels(operation=operation).observe(latency)
+
+
+def observe_redis(operation: str, latency: float) -> None:
+    redis_operations.labels(operation=operation).inc()
+    redis_latency.labels(operation=operation).observe(latency)
+
+
+def observe_eval(metric: str, value: float) -> None:
+    eval_total.inc()
+    eval_score.labels(metric=metric).set(value)
+
+
+def observe_session_language(language: str) -> None:
+    session_language.labels(language=language).inc()
+
+
+def observe_sip_call(status: str) -> None:
+    sip_calls.labels(status=status).inc()
+
+
+def observe_cost(cost_type: str, amount: float) -> None:
+    cost_total.labels(type=cost_type).inc(amount)
+
+
+def observe_session_duration(seconds: float) -> None:
+    session_duration.observe(seconds)

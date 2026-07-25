@@ -8,7 +8,12 @@ from livekit.agents import ChatContext, JobContext, ServerEnvOption
 from livekit.agents.metrics import STTMetrics, LLMMetrics, TTSMetrics
 from livekit.plugins import noise_cancellation, silero
 
-from src.monitoring import active_sessions, total_sessions, observe_stt, observe_llm, observe_tts, start_cpu_monitoring
+from src.monitoring import (
+    active_sessions, total_sessions,
+    observe_stt, observe_llm, observe_tts, start_cpu_monitoring,
+    observe_session_language, observe_sip_call, returning_callers,
+    observe_session_duration, observe_e2e_latency, observe_error, observe_cost,
+)
 from src.services.cost import persist_cost
 from src.utils.session_ctx import set_session_id
 from src.voice_agent import RiyaEnglish, RiyaHindi, RiyaBengali
@@ -69,12 +74,14 @@ async def my_agent(ctx: JobContext):
     # Lookup previous patient info by phone number for SIP calls
     patient_info = None
     if is_sip_call:
+        observe_sip_call("incoming")
         logger.info(f"SIP call detected for participant {participant.identity}. Initializing SIP logging.")
         ctx.log_context_fields["sip_identity"] = participant.identity
         caller_id = participant.identity
         phone_number = participant.attributes.get('sip.phoneNumber', 'Unknown')
         previous_calls = await asyncio.to_thread(_call_svc.filter, CallLog.phone_number == phone_number)
         if previous_calls:
+            returning_callers.set(len(previous_calls))
             patient_info = {
                 "name": participant.name,
                 "phone": phone_number,
@@ -84,6 +91,8 @@ async def my_agent(ctx: JobContext):
 
     if patient_info:
         language = patient_info.get("language", language)
+
+    observe_session_language(language)
 
     participant_context = {
         "identity": participant.identity,
@@ -179,6 +188,8 @@ async def my_agent(ctx: JobContext):
             observe_llm(m)
         elif isinstance(m, TTSMetrics):
             observe_tts(m)
+        else:
+            observe_error("unknown_metric")
 
     @session.on("session_usage_updated")
     def _on_session_usage_updated(ev: SessionUsageUpdatedEvent):
@@ -199,6 +210,9 @@ async def my_agent(ctx: JobContext):
             if event.item.metrics:
                 metrics_collector.add_turn_latency(event.item.role, event.item.metrics)
                 session_manager.update_turn_latency(event.item.role, event.item.metrics)
+                e2e = event.item.metrics.get("e2e_latency")
+                if e2e:
+                    e2e_latency.observe(e2e)
         except Exception as e:
             logger.error(f"Error logging conversation item: {e}")
 
@@ -207,10 +221,23 @@ async def my_agent(ctx: JobContext):
         try:
             active_sessions.dec()
             report = ctx.make_session_report()
-            await persist_cost(session_manager, report.to_dict())
+            cost_data = await persist_cost(session_manager, report.to_dict())
+            if cost_data:
+                for ctype in ("stt_cost", "tts_cost", "llm_cost", "sip_cost", "total_cost"):
+                    amount = cost_data.get(ctype, 0)
+                    if amount:
+                        observe_cost(ctype, amount)
             await session_manager.end_session()
+            # Fetch session duration from Redis usage data
+            usage = session_manager.metrics.get_usage() if session_manager.metrics else {}
+            sess_duration = 0.0
+            for mu in (usage.get("model_usage", {}) or {}).values():
+                sess_duration = max(sess_duration, mu.get("session_duration", 0) or 0)
+            if sess_duration > 0:
+                observe_session_duration(sess_duration)
             logger.info(f"Session for room {ctx.room.name} ended and cleaned up.")
         except Exception as e:
+            observe_error("session_end")
             logger.error(f"Error during session cleanup: {e}")
 
     ctx.add_shutdown_callback(end_handler)

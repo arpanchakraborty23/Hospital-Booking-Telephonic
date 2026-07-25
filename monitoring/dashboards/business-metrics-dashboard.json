@@ -1,0 +1,456 @@
+{
+  "title": "Hospital Agent — Business & Quality Metrics",
+  "tags": ["hospital", "agent", "business"],
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "10s",
+  "panels": [
+    {
+      "gridPos": { "h": 6, "w": 2, "x": 0, "y": 0 },
+      "type": "stat",
+      "title": "Sessions / min",
+      "targets": [
+        {
+          "expr": "rate(hospital_total_sessions_total[1m])",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 6, "w": 2, "x": 2, "y": 0 },
+      "type": "stat",
+      "title": "Avg E2E Latency",
+      "targets": [
+        {
+          "expr": "rate(hospital_e2e_latency_seconds_sum[5m]) / rate(hospital_e2e_latency_seconds_count[5m])",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 3, "color": "orange" },
+              { "value": 5, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 6, "w": 2, "x": 4, "y": 0 },
+      "type": "stat",
+      "title": "Avg Session Duration",
+      "targets": [
+        {
+          "expr": "rate(hospital_session_duration_seconds_sum[5m]) / rate(hospital_session_duration_seconds_count[5m])",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 120, "color": "orange" },
+              { "value": 300, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 6, "w": 2, "x": 6, "y": 0 },
+      "type": "stat",
+      "title": "Returning Callers",
+      "targets": [
+        {
+          "expr": "hospital_returning_callers",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 6, "w": 2, "x": 8, "y": 0 },
+      "type": "stat",
+      "title": "Total Cost",
+      "targets": [
+        {
+          "expr": "hospital_cost_total{type=\"total_cost\"}",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyusd",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 10, "color": "orange" },
+              { "value": 50, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 6, "w": 2, "x": 10, "y": 0 },
+      "type": "stat",
+      "title": "Errors / min",
+      "targets": [
+        {
+          "expr": "rate(hospital_errors_total[1m])",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 1, "color": "orange" },
+              { "value": 5, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 12, "y": 0 },
+      "type": "piechart",
+      "title": "Sessions by Language",
+      "targets": [
+        {
+          "expr": "hospital_session_language_total",
+          "legendFormat": "{{language}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "options": {
+        "pieType": "pie",
+        "showLegend": true,
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["sum"]
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "type": "timeseries",
+      "title": "E2E Latency (p50 / p95 / p99)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(hospital_e2e_latency_seconds_bucket[5m]))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(hospital_e2e_latency_seconds_bucket[5m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(hospital_e2e_latency_seconds_bucket[5m]))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 12, "y": 6 },
+      "type": "piechart",
+      "title": "Intent Distribution",
+      "targets": [
+        {
+          "expr": "hospital_intent_total",
+          "legendFormat": "{{intent}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "options": {
+        "pieType": "pie",
+        "showLegend": true,
+        "reduceOptions": {
+          "values": false,
+          "calcs": ["sum"]
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 14 },
+      "type": "barchart",
+      "title": "Tool Calls by Name",
+      "targets": [
+        {
+          "expr": "rate(hospital_tool_calls_total{status=\"success\"}[5m])",
+          "legendFormat": "{{tool_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showLegend": true,
+        "groupWidth": 0.7
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 14 },
+      "type": "timeseries",
+      "title": "Tool Latency (p50)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(hospital_tool_latency_seconds_bucket[5m]))",
+          "legendFormat": "{{tool_name}} p50",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 14 },
+      "type": "barchart",
+      "title": "Tool Error Rate",
+      "targets": [
+        {
+          "expr": "rate(hospital_tool_calls_total{status=~\"error|not_found\"}[5m])",
+          "legendFormat": "{{tool_name}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showLegend": true,
+        "groupWidth": 0.7
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 22 },
+      "type": "timeseries",
+      "title": "Session Duration Distribution",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(hospital_session_duration_seconds_bucket[5m]))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(hospital_session_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 22 },
+      "type": "timeseries",
+      "title": "Cost Breakdown",
+      "targets": [
+        {
+          "expr": "rate(hospital_cost_total[5m])",
+          "legendFormat": "{{type}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyusd"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 22 },
+      "type": "barchart",
+      "title": "Errors by Type",
+      "targets": [
+        {
+          "expr": "rate(hospital_errors_total[5m])",
+          "legendFormat": "{{type}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showLegend": true,
+        "groupWidth": 0.7
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 30 },
+      "type": "timeseries",
+      "title": "DB Query Latency (p50)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(hospital_db_query_latency_seconds_bucket[5m]))",
+          "legendFormat": "{{operation}} p50",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 30 },
+      "type": "timeseries",
+      "title": "DB Operations Rate",
+      "targets": [
+        {
+          "expr": "rate(hospital_db_queries_total[5m])",
+          "legendFormat": "{{operation}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 30 },
+      "type": "timeseries",
+      "title": "Redis Operations Rate",
+      "targets": [
+        {
+          "expr": "rate(hospital_redis_operations_total[5m])",
+          "legendFormat": "{{operation}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 38 },
+      "type": "timeseries",
+      "title": "Evaluation Scores Over Time",
+      "targets": [
+        {
+          "expr": "hospital_eval_score",
+          "legendFormat": "{{metric}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "max": 10
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 38 },
+      "type": "stat",
+      "title": "Total Evaluations",
+      "targets": [
+        {
+          "expr": "hospital_eval_total",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    },
+    {
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 38 },
+      "type": "stat",
+      "title": "SIP Call Count",
+      "targets": [
+        {
+          "expr": "hospital_sip_calls_total",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "palette-classic" }
+        }
+      }
+    }
+  ]
+}

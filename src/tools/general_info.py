@@ -1,4 +1,8 @@
+import time
+
 from livekit.agents import function_tool
+
+from src.monitoring import observe_tool_call, observe_error
 
 HOSPITAL_INFO = {
     "name": "ABC Hospital",
@@ -63,4 +67,11 @@ async def get_hospital_info() -> dict:
     Use this for queries about hospital location, visiting hours, OPD timings, emergency services,
     available facilities, registration process, insurance, or any general hospital-related question.
     """
-    return HOSPITAL_INFO
+    _start = time.perf_counter()
+    try:
+        observe_tool_call("get_hospital_info", time.perf_counter() - _start, "success")
+        return HOSPITAL_INFO
+    except Exception as e:
+        observe_tool_call("get_hospital_info", time.perf_counter() - _start, "error")
+        observe_error("tool_get_hospital_info")
+        raise

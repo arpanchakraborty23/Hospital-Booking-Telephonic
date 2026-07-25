@@ -6,6 +6,7 @@ from livekit import rtc
 from livekit.agents import Agent, ModelSettings, llm, stt
 
 
+from src.monitoring import observe_intent
 from src.prompt import get_prompt
 from .agents import get_agent_class
 
@@ -63,9 +64,11 @@ class BaseAgent(Agent):
         """
         Update the prompt for the LLM. This function can be called from within the LLM context.
         """
+        intent = labels[0]
         language = self.language
+        observe_intent(intent)
         get_prompt_func = get_prompt
-        prompt = get_prompt_func(language, labels[0])  # Use the first label as the intent
+        prompt = get_prompt_func(language, intent)  # Use the first label as the intent
 
         await self.update_instructions(prompt)
 

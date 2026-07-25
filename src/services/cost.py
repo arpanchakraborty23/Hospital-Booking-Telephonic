@@ -52,10 +52,11 @@ def compute_cost(usage: dict) -> dict:
     }
 
 
-async def persist_cost(session_manager: "SessionManager", report: dict) -> None:
+async def persist_cost(session_manager: "SessionManager", report: dict) -> dict:
     usage = session_manager.metrics.get_usage() if session_manager.metrics else None
     if usage is None:
         usage = {}
     cost = compute_cost(usage)
     session_manager.save_metrics_cost(**cost)
     logger.info("Cost computed for %s: $%.4f", session_manager.session_id, cost["total_cost"])
+    return cost

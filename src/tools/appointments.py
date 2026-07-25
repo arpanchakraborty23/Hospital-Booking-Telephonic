@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -7,6 +9,7 @@ from livekit.agents import function_tool
 from src.constants.config import DataBaseCOnfig
 from src.constants.models import appointment as Appointment
 from src.constants.models import doctor as Doctor
+from src.monitoring import observe_tool_call, observe_error
 from src.services.database import SQLModelServices
 
 logger = logging.getLogger(__name__)
@@ -24,27 +27,34 @@ async def check_availability(department: str, doctor: Optional[str] = None, date
         doctor: Optional specific doctor name. If not provided, shows all doctors in the department.
         date_str: Date in YYYY-MM-DD format. Defaults to today if not provided.
     """
-    if doctor:
-        docs = await asyncio.to_thread(_doctor_svc.filter, Doctor.doctor_name == doctor)
-    else:
-        docs = await asyncio.to_thread(_doctor_svc.filter, Doctor.specialization == department)
+    _start = time.perf_counter()
+    try:
+        if doctor:
+            docs = await asyncio.to_thread(_doctor_svc.filter, Doctor.doctor_name == doctor)
+        else:
+            docs = await asyncio.to_thread(_doctor_svc.filter, Doctor.specialization == department)
 
-    target_date = date_str or datetime.now().date().isoformat()
-    weekday = datetime.fromisoformat(target_date).strftime("%A")
+        target_date = date_str or datetime.now().date().isoformat()
+        weekday = datetime.fromisoformat(target_date).strftime("%A")
 
-    result = []
-    for d in docs:
-        available_days = d.available_days or []
-        if weekday not in available_days:
-            continue
-        result.append({
-            "doctor": d.doctor_name,
-            "specialization": d.specialization,
-            "date": target_date,
-            "available_time_slots": d.available_time_slots or [],
-            "consultation_fee": d.consultation_fee,
-        })
-    return result
+        result = []
+        for d in docs:
+            available_days = d.available_days or []
+            if weekday not in available_days:
+                continue
+            result.append({
+                "doctor": d.doctor_name,
+                "specialization": d.specialization,
+                "date": target_date,
+                "available_time_slots": d.available_time_slots or [],
+                "consultation_fee": d.consultation_fee,
+            })
+        observe_tool_call("check_availability", time.perf_counter() - _start, "success")
+        return result
+    except Exception as e:
+        observe_tool_call("check_availability", time.perf_counter() - _start, "error")
+        observe_error("tool_check_availability")
+        raise
 
 
 @function_tool()
@@ -60,25 +70,33 @@ async def book_appointment(patient_name: str, phone: str, department: str, docto
         date_str: Appointment date in YYYY-MM-DD format
         time: Appointment time in HH:MM format (e.g., 10:00, 14:30)
     """
-    apt_datetime = datetime.fromisoformat(f"{date_str}T{time}:00")
-    apt = await asyncio.to_thread(
-        _apt_svc.create,
-        session_id="",
-        phone_number=phone,
-        appointment_date=apt_datetime,
-        doctor_name=doctor,
-        payment_status="pending",
-        status="scheduled",
-    )
-    return {
-        "appointment_id": apt.id,
-        "status": "scheduled",
-        "doctor": doctor,
-        "department": department,
-        "date": date_str,
-        "time": time,
-        "phone": phone,
-    }
+    _start = time.perf_counter()
+    try:
+        apt_datetime = datetime.fromisoformat(f"{date_str}T{time}:00")
+        apt = await asyncio.to_thread(
+            _apt_svc.create,
+            session_id="",
+            phone_number=phone,
+            appointment_date=apt_datetime,
+            doctor_name=doctor,
+            payment_status="pending",
+            status="scheduled",
+        )
+        result = {
+            "appointment_id": apt.id,
+            "status": "scheduled",
+            "doctor": doctor,
+            "department": department,
+            "date": date_str,
+            "time": time,
+            "phone": phone,
+        }
+        observe_tool_call("book_appointment", time.perf_counter() - _start, "success")
+        return result
+    except Exception as e:
+        observe_tool_call("book_appointment", time.perf_counter() - _start, "error")
+        observe_error("tool_book_appointment")
+        raise
 
 
 @function_tool()
@@ -90,17 +108,26 @@ async def reschedule_appointment(appointment_id: str, new_date: str, new_time: s
         new_date: New appointment date in YYYY-MM-DD format
         new_time: New appointment time in HH:MM format
     """
-    apt_datetime = datetime.fromisoformat(f"{new_date}T{new_time}:00")
-    updated = await asyncio.to_thread(_apt_svc.update, int(appointment_id), appointment_date=apt_datetime)
-    if updated is None:
-        return {"error": "Appointment not found", "appointment_id": appointment_id}
-    return {
-        "appointment_id": updated.id,
-        "status": updated.status,
-        "new_date": new_date,
-        "new_time": new_time,
-        "doctor": updated.doctor_name,
-    }
+    _start = time.perf_counter()
+    try:
+        apt_datetime = datetime.fromisoformat(f"{new_date}T{new_time}:00")
+        updated = await asyncio.to_thread(_apt_svc.update, int(appointment_id), appointment_date=apt_datetime)
+        if updated is None:
+            observe_tool_call("reschedule_appointment", time.perf_counter() - _start, "not_found")
+            return {"error": "Appointment not found", "appointment_id": appointment_id}
+        result = {
+            "appointment_id": updated.id,
+            "status": updated.status,
+            "new_date": new_date,
+            "new_time": new_time,
+            "doctor": updated.doctor_name,
+        }
+        observe_tool_call("reschedule_appointment", time.perf_counter() - _start, "success")
+        return result
+    except Exception as e:
+        observe_tool_call("reschedule_appointment", time.perf_counter() - _start, "error")
+        observe_error("tool_reschedule_appointment")
+        raise
 
 
 @function_tool()
@@ -110,14 +137,23 @@ async def cancel_appointment(appointment_id: str) -> dict:
     Args:
         appointment_id: The appointment ID to cancel
     """
-    updated = await asyncio.to_thread(_apt_svc.update, int(appointment_id), status="cancelled")
-    if updated is None:
-        return {"error": "Appointment not found", "appointment_id": appointment_id}
-    return {
-        "appointment_id": updated.id,
-        "status": "cancelled",
-        "doctor": updated.doctor_name,
-    }
+    _start = time.perf_counter()
+    try:
+        updated = await asyncio.to_thread(_apt_svc.update, int(appointment_id), status="cancelled")
+        if updated is None:
+            observe_tool_call("cancel_appointment", time.perf_counter() - _start, "not_found")
+            return {"error": "Appointment not found", "appointment_id": appointment_id}
+        result = {
+            "appointment_id": updated.id,
+            "status": "cancelled",
+            "doctor": updated.doctor_name,
+        }
+        observe_tool_call("cancel_appointment", time.perf_counter() - _start, "success")
+        return result
+    except Exception as e:
+        observe_tool_call("cancel_appointment", time.perf_counter() - _start, "error")
+        observe_error("tool_cancel_appointment")
+        raise
 
 
 @function_tool()
@@ -127,14 +163,22 @@ async def lookup_appointment(phone: str) -> list[dict]:
     Args:
         phone: Patient's phone number with country code
     """
-    apts = await asyncio.to_thread(_apt_svc.filter, Appointment.phone_number == phone)
-    return [
-        {
-            "appointment_id": a.id,
-            "doctor_name": a.doctor_name,
-            "appointment_date": a.appointment_date.isoformat() if a.appointment_date else None,
-            "status": a.status,
-            "payment_status": a.payment_status,
-        }
-        for a in apts
-    ]
+    _start = time.perf_counter()
+    try:
+        apts = await asyncio.to_thread(_apt_svc.filter, Appointment.phone_number == phone)
+        result = [
+            {
+                "appointment_id": a.id,
+                "doctor_name": a.doctor_name,
+                "appointment_date": a.appointment_date.isoformat() if a.appointment_date else None,
+                "status": a.status,
+                "payment_status": a.payment_status,
+            }
+            for a in apts
+        ]
+        observe_tool_call("lookup_appointment", time.perf_counter() - _start, "success")
+        return result
+    except Exception as e:
+        observe_tool_call("lookup_appointment", time.perf_counter() - _start, "error")
+        observe_error("tool_lookup_appointment")
+        raise

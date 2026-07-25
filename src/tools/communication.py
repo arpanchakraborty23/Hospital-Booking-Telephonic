@@ -1,6 +1,9 @@
 import logging
+import time
 
 from livekit.agents import function_tool
+
+from src.monitoring import observe_tool_call, observe_error
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +16,16 @@ async def send_confirmation(phone: str, appointment_details: dict) -> dict:
         phone: Patient's phone number with country code
         appointment_details: Appointment details object containing doctor, date, time, department
     """
-    logger.info("Confirmation sent to %s: %s", phone, appointment_details)
-    return {"status": "sent", "phone": phone, "method": "whatsapp", "details": appointment_details}
+    _start = time.perf_counter()
+    try:
+        logger.info("Confirmation sent to %s: %s", phone, appointment_details)
+        result = {"status": "sent", "phone": phone, "method": "whatsapp", "details": appointment_details}
+        observe_tool_call("send_confirmation", time.perf_counter() - _start, "success")
+        return result
+    except Exception as e:
+        observe_tool_call("send_confirmation", time.perf_counter() - _start, "error")
+        observe_error("tool_send_confirmation")
+        raise
 
 
 @function_tool()
@@ -24,5 +35,13 @@ async def escalate_to_human(reason: str) -> dict:
     Args:
         reason: Reason for escalation (e.g., medical emergency, billing query, repeated human request)
     """
-    logger.info("Escalation requested: %s", reason)
-    return {"status": "transferred", "reason": reason}
+    _start = time.perf_counter()
+    try:
+        logger.info("Escalation requested: %s", reason)
+        result = {"status": "transferred", "reason": reason}
+        observe_tool_call("escalate_to_human", time.perf_counter() - _start, "success")
+        return result
+    except Exception as e:
+        observe_tool_call("escalate_to_human", time.perf_counter() - _start, "error")
+        observe_error("tool_escalate_to_human")
+        raise
