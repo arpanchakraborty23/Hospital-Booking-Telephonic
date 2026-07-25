@@ -2,11 +2,6 @@ import logging
 
 from livekit.agents import function_tool
 
-from src.services.hospital_data import (
-    send_confirmation as _mock_send_confirmation,
-    escalate_to_human as _mock_escalate_to_human,
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -18,7 +13,8 @@ async def send_confirmation(phone: str, appointment_details: dict) -> dict:
         phone: Patient's phone number with country code
         appointment_details: Appointment details object containing doctor, date, time, department
     """
-    return _mock_send_confirmation(phone, appointment_details)
+    logger.info("Confirmation sent to %s: %s", phone, appointment_details)
+    return {"status": "sent", "phone": phone, "method": "whatsapp", "details": appointment_details}
 
 
 @function_tool()
@@ -28,4 +24,5 @@ async def escalate_to_human(reason: str) -> dict:
     Args:
         reason: Reason for escalation (e.g., medical emergency, billing query, repeated human request)
     """
-    return _mock_escalate_to_human(reason)
+    logger.info("Escalation requested: %s", reason)
+    return {"status": "transferred", "reason": reason}

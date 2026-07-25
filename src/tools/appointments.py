@@ -1,18 +1,18 @@
 import logging
-from datetime import date
+from datetime import datetime
 from typing import Optional
 
 from livekit.agents import function_tool
 
-from src.services.hospital_data import (
-    check_availability as _mock_check_availability,
-    book_appointment as _mock_book_appointment,
-    reschedule_appointment as _mock_reschedule_appointment,
-    cancel_appointment as _mock_cancel_appointment,
-    lookup_appointment as _mock_lookup_appointment,
-)
+from src.constants.config import DataBaseCOnfig
+from src.constants.models import appointment as Appointment
+from src.constants.models import doctor as Doctor
+from src.services.database import SQLModelServices
 
 logger = logging.getLogger(__name__)
+
+_apt_svc = SQLModelServices(DataBaseCOnfig.sql_database_url, Appointment)
+_doctor_svc = SQLModelServices(DataBaseCOnfig.sql_database_url, Doctor)
 
 
 @function_tool()
@@ -24,7 +24,27 @@ async def check_availability(department: str, doctor: Optional[str] = None, date
         doctor: Optional specific doctor name. If not provided, shows all doctors in the department.
         date_str: Date in YYYY-MM-DD format. Defaults to today if not provided.
     """
-    return _mock_check_availability(department, doctor, date_str or date.today().isoformat())
+    if doctor:
+        docs = _doctor_svc.filter(Doctor.doctor_name == doctor)
+    else:
+        docs = _doctor_svc.filter(Doctor.specialization == department)
+
+    target_date = date_str or datetime.now().date().isoformat()
+    weekday = datetime.fromisoformat(target_date).strftime("%A")
+
+    result = []
+    for d in docs:
+        available_days = d.available_days or []
+        if weekday not in available_days:
+            continue
+        result.append({
+            "doctor": d.doctor_name,
+            "specialization": d.specialization,
+            "date": target_date,
+            "available_time_slots": d.available_time_slots or [],
+            "consultation_fee": d.consultation_fee,
+        })
+    return result
 
 
 @function_tool()
@@ -40,7 +60,24 @@ async def book_appointment(patient_name: str, phone: str, department: str, docto
         date_str: Appointment date in YYYY-MM-DD format
         time: Appointment time in HH:MM format (e.g., 10:00, 14:30)
     """
-    return _mock_book_appointment(patient_name, phone, department, doctor, date_str, time)
+    apt_datetime = datetime.fromisoformat(f"{date_str}T{time}:00")
+    apt = _apt_svc.create(
+        session_id="",
+        phone_number=phone,
+        appointment_date=apt_datetime,
+        doctor_name=doctor,
+        payment_status="pending",
+        status="scheduled",
+    )
+    return {
+        "appointment_id": apt.id,
+        "status": "scheduled",
+        "doctor": doctor,
+        "department": department,
+        "date": date_str,
+        "time": time,
+        "phone": phone,
+    }
 
 
 @function_tool()
@@ -48,11 +85,21 @@ async def reschedule_appointment(appointment_id: str, new_date: str, new_time: s
     """Reschedule an existing appointment to a new date and time.
 
     Args:
-        appointment_id: The appointment ID to reschedule (e.g., APT001)
+        appointment_id: The appointment ID to reschedule
         new_date: New appointment date in YYYY-MM-DD format
         new_time: New appointment time in HH:MM format
     """
-    return _mock_reschedule_appointment(appointment_id, new_date, new_time)
+    apt_datetime = datetime.fromisoformat(f"{new_date}T{new_time}:00")
+    updated = _apt_svc.update(int(appointment_id), appointment_date=apt_datetime)
+    if updated is None:
+        return {"error": "Appointment not found", "appointment_id": appointment_id}
+    return {
+        "appointment_id": updated.id,
+        "status": updated.status,
+        "new_date": new_date,
+        "new_time": new_time,
+        "doctor": updated.doctor_name,
+    }
 
 
 @function_tool()
@@ -60,9 +107,16 @@ async def cancel_appointment(appointment_id: str) -> dict:
     """Cancel an existing appointment.
 
     Args:
-        appointment_id: The appointment ID to cancel (e.g., APT001)
+        appointment_id: The appointment ID to cancel
     """
-    return _mock_cancel_appointment(appointment_id)
+    updated = _apt_svc.update(int(appointment_id), status="cancelled")
+    if updated is None:
+        return {"error": "Appointment not found", "appointment_id": appointment_id}
+    return {
+        "appointment_id": updated.id,
+        "status": "cancelled",
+        "doctor": updated.doctor_name,
+    }
 
 
 @function_tool()
@@ -72,4 +126,14 @@ async def lookup_appointment(phone: str) -> list[dict]:
     Args:
         phone: Patient's phone number with country code
     """
-    return _mock_lookup_appointment(phone)
+    apts = _apt_svc.filter(Appointment.phone_number == phone)
+    return [
+        {
+            "appointment_id": a.id,
+            "doctor_name": a.doctor_name,
+            "appointment_date": a.appointment_date.isoformat() if a.appointment_date else None,
+            "status": a.status,
+            "payment_status": a.payment_status,
+        }
+        for a in apts
+    ]

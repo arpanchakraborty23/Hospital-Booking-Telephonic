@@ -1,16 +1,13 @@
 import json
 import logging
 import os
-from typing import Any, Optional, Type, TypeVar
+from typing import Optional, Type, TypeVar
 
-import asyncpg
 import redis as redis_lib
 from dotenv import load_dotenv
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import SQLModel, Session, select
 from sqlalchemy import create_engine
-
-from src.constants.config import NeonConfig
 
 load_dotenv()
 

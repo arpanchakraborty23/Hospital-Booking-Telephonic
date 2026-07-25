@@ -11,18 +11,20 @@ from livekit.plugins import noise_cancellation, silero
 from src.monitoring import active_sessions, total_sessions, observe_stt, observe_llm, observe_tts, start_cpu_monitoring
 from src.services.cost import persist_cost
 from src.utils.session_ctx import set_session_id
-from src.services.hospital_data import lookup_patient_by_phone
 from src.voice_agent import RiyaEnglish, RiyaHindi, RiyaBengali
 from src.tools.hospital_tools import HospitalTools
 from src.services import SessionManager
 from src.voice_agent import MetricsCollector
-from src.constants.config import LiveKitConfig
+from src.constants.config import LiveKitConfig, DataBaseCOnfig
+from src.constants.models import call_logs as CallLog
+from src.services.database import SQLModelServices
 
 logger = logging.getLogger(__name__)
 
 session_manager = SessionManager()
 metrics_collector = MetricsCollector()
 agent_name = LiveKitConfig.livekit_agent_name or "Riya"
+_call_svc = SQLModelServices(DataBaseCOnfig.sql_database_url, CallLog)
 
 
 server = AgentServer(
@@ -71,7 +73,14 @@ async def my_agent(ctx: JobContext):
         ctx.log_context_fields["sip_identity"] = participant.identity
         caller_id = participant.identity
         phone_number = participant.attributes.get('sip.phoneNumber', 'Unknown')
-        patient_info = lookup_patient_by_phone(phone_number)
+        previous_calls = _call_svc.filter(CallLog.phone_number == phone_number)
+        if previous_calls:
+            patient_info = {
+                "name": participant.name,
+                "phone": phone_number,
+                "language": "en",
+                "previous_summary": previous_calls[-1].summary,
+            }
 
     if patient_info:
         language = patient_info.get("language", language)
@@ -80,6 +89,7 @@ async def my_agent(ctx: JobContext):
         "identity": participant.identity,
         "name": patient_info["name"] if patient_info else participant.name,
         "language": language,
+        "previous_summary": patient_info.get("previous_summary") if patient_info else None,
     }
     logger.info("Participant context: %s", participant_context)
 

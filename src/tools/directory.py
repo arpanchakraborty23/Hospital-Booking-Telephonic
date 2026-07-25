@@ -2,18 +2,21 @@ import logging
 
 from livekit.agents import function_tool
 
-from src.services.hospital_data import (
-    get_departments as _mock_get_departments,
-    get_doctors as _mock_get_doctors,
-)
+from src.constants.config import DataBaseCOnfig
+from src.constants.models import doctor as Doctor
+from src.services.database import SQLModelServices
 
 logger = logging.getLogger(__name__)
+
+_doctor_svc = SQLModelServices(DataBaseCOnfig.sql_database_url, Doctor)
 
 
 @function_tool()
 async def get_departments() -> list[str]:
     """Get list of all available departments in the hospital."""
-    return _mock_get_departments()
+    doctors = _doctor_svc.get_all()
+    departments = sorted({d.specialization for d in doctors if d.specialization})
+    return departments
 
 
 @function_tool()
@@ -23,4 +26,16 @@ async def get_doctors(department: str) -> list[dict]:
     Args:
         department: Department name
     """
-    return _mock_get_doctors(department)
+    doctors = _doctor_svc.filter(Doctor.specialization == department)
+    return [
+        {
+            "name": d.doctor_name,
+            "specialization": d.specialization,
+            "hospital_name": d.hospital_name,
+            "consultation_fee": d.consultation_fee,
+            "experience_years": d.experience_years,
+            "available_days": d.available_days,
+            "available_time_slots": d.available_time_slots,
+        }
+        for d in doctors
+    ]

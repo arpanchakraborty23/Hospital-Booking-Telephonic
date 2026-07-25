@@ -1,10 +1,15 @@
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
 from dotenv import load_dotenv
 
-from .database import RedisServices
+from .database import RedisServices, SQLModelServices
+from src.constants.config import DataBaseCOnfig
+from src.constants.models import call_logs as CallLogModel
+from src.constants.models import cost as CostModel
+from src.constants.models import Metrics as MetricsModel
+from src.constants.models import transcriptions as TranscriptionModel
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -105,7 +110,8 @@ class MetricsLogs:
 class SessionManager:
     """
     Orchestrates session lifecycle — delegates actual Redis I/O to
-    CallLogs, TranscriptsLogs, and MetricsLogs.
+    CallLogs, TranscriptsLogs, and MetricsLogs.  At session end, all
+    data is persisted to PostgreSQL via SQLModelServices.
     """
 
     def __init__(self):
@@ -146,28 +152,147 @@ class SessionManager:
         self.call.save(call_data)
         logger.info("Session %s started", session_id)
 
-    def end_session(self, duration_seconds: float = 0.0):
+    async def end_session(self, duration_seconds: float = 0.0):
         """
-        Tear down the session: log final stats, then delete all
-        session data from Redis.
+        Tear down the session:
+
+        1. Read transcript, usage, latency, and cost from Redis.
+        2. Generate a summary (eval) from the transcript.
+        3. Store transcript in DB (transcriptions table).
+        4. Store call log with summary in DB (call_logs table).
+        5. Store metrics in DB (Metrics table).
+        6. Store cost in DB (cost table).
+        7. Clean up all session data from Redis.
         """
         if not self._check_active():
             return
 
-        msg_count = self.transcripts.count()
-        logger.info(
-            "Session %s ended. %s messages. Duration: %.1fs.",
-            self.session_id, msg_count, duration_seconds,
-        )
+        messages = []
+        call_data = {}
+        usage = {}
+        latencies = []
+        cost_data = {}
 
-        self.call.delete()
-        self.transcripts.delete()
-        self.metrics.delete_all()
+        try:
+            # ---- 1. Gather data from Redis ----
+            messages = self.transcripts.get_all()
+            call_data = self.call.get() or {}
+            usage = self.metrics.get_usage() or {}
+            latencies = self.metrics.get_latencies()
+            cost_data = self.metrics.get_cost() or {}
 
-        self.session_id = None
-        self.call = None
-        self.transcripts = None
-        self.metrics = None
+            # Compute timing
+            started_at_str = call_data.get("started_at")
+            start_time = (
+                datetime.fromisoformat(started_at_str) if started_at_str else datetime.now()
+            )
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+
+            # ---- 2. Eval / summarise using transcript ----
+            summary = self._generate_summary(messages)
+
+            # ---- 3. Store transcript in DB ----
+            _trans_svc = SQLModelServices(
+                DataBaseCOnfig.sql_database_url, TranscriptionModel
+            )
+            _trans_svc.create(
+                session_id=self.session_id,
+                phone_number=self._phone_number or "",
+                transcription_text={"messages": messages},
+                count=len(messages),
+                language=self._language,
+                summary=summary,
+            )
+
+            # ---- 4. Call logs with summary ----
+            _call_svc = SQLModelServices(
+                DataBaseCOnfig.sql_database_url, CallLogModel
+            )
+            _call_svc.create(
+                session_id=self.session_id,
+                phone_number=self._phone_number or "",
+                summary=summary,
+                start_time=start_time,
+                end_time=end_time,
+                duration=duration,
+            )
+
+            # ---- 5. Metrics in DB ----
+            stt_metric: dict = {}
+            tts_metric: dict = {}
+            llm_metric: dict = {}
+            prompt_tokens = 0
+            completion_tokens = 0
+
+            model_usage = usage.get("model_usage", {})
+            for key, mu in model_usage.items():
+                provider = key.split("/")[0].lower() if "/" in key else ""
+                if "deepgram" in provider:
+                    stt_metric[key] = mu
+                elif "cartesia" in provider:
+                    tts_metric[key] = mu
+                elif "sarvam" in provider:
+                    llm_metric[key] = mu
+                    prompt_tokens += mu.get("input_tokens", 0) or 0
+                    completion_tokens += mu.get("output_tokens", 0) or 0
+
+            avg_latency = 0
+            if latencies:
+                total = sum(
+                    (l.get("e2e_latency") or l.get("transcription_delay") or 0)
+                    for l in latencies
+                )
+                avg_latency = int(total / len(latencies))
+
+            _metrics_svc = SQLModelServices(
+                DataBaseCOnfig.sql_database_url, MetricsModel
+            )
+            _metrics_svc.create(
+                session_id=self.session_id,
+                stt_metric=stt_metric,
+                tts_metric=tts_metric,
+                llm_metric=llm_metric,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_tokens + completion_tokens,
+                average_latency=avg_latency,
+            )
+
+            # ---- 6. Cost in DB ----
+            if cost_data:
+                _cost_svc = SQLModelServices(
+                    DataBaseCOnfig.sql_database_url, CostModel
+                )
+                _cost_svc.create(
+                    session_id=self.session_id,
+                    phone_number=self._phone_number or "",
+                    stt_cost=cost_data.get("stt_cost", 0.0),
+                    tts_cost=cost_data.get("tts_cost", 0.0),
+                    llm_cost=cost_data.get("llm_cost", 0.0),
+                    sip_cost=cost_data.get("sip_cost", 0.0),
+                    total_cost=cost_data.get("total_cost", 0.0),
+                )
+
+            logger.info(
+                "Session %s ended. %d messages. Duration: %.1fs. "
+                "Transcript, call log, metrics, and cost stored in DB.",
+                self.session_id,
+                len(messages),
+                duration,
+            )
+        except Exception as e:
+            logger.error("Error during DB persistence in end_session: %s", e)
+        finally:
+            # ---- 7. Clean up Redis regardless ----
+            self.call.delete()
+            self.transcripts.delete()
+            self.metrics.delete_all()
+
+            self.session_id = None
+            self.call = None
+            self.transcripts = None
+            self.metrics = None
 
     # ------------------------------------------------------------------
     # Conversation transcripts
@@ -263,6 +388,38 @@ class SessionManager:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _generate_summary(self, messages: list) -> str:
+        """Generate a concise summary (eval) from the conversation transcript."""
+        if not messages:
+            return "No conversation recorded."
+
+        user_count = sum(1 for m in messages if m.get("role") == "user")
+        agent_count = sum(1 for m in messages if m.get("role") == "agent")
+
+        topics = []
+        for m in messages:
+            msg = str(m.get("message", "")).lower()
+            if "appointment" in msg or "booking" in msg:
+                topics.append("appointment booking")
+            elif "reschedule" in msg:
+                topics.append("rescheduling")
+            elif "cancel" in msg:
+                topics.append("cancellation")
+            elif "doctor" in msg or "department" in msg:
+                topics.append("directory inquiry")
+
+        summary = (
+            f"Call with {self._phone_number}. "
+            f"{len(messages)} messages ({user_count} user, {agent_count} agent). "
+        )
+        if topics:
+            unique_topics = list(dict.fromkeys(topics))
+            summary += f"Topics: {', '.join(unique_topics)}."
+        else:
+            summary += "General inquiry."
+
+        return summary
 
     def _check_active(self) -> bool:
         """Guard: log a warning if no session has been started."""
