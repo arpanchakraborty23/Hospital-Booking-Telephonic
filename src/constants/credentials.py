@@ -6,7 +6,6 @@ from livekit.plugins import sarvam, deepgram, cartesia
 from src.constants.config import (
     AWSConfig,
     LiveKitConfig,
-    NeonConfig,
     ProviderConfig,
 )
 
@@ -97,6 +96,5 @@ class Credentials:
     # Aggregates all config classes for single import point
     livekit: type[LiveKitConfig] = LiveKitConfig
     aws: type[AWSConfig] = AWSConfig
-    neon: type[NeonConfig] = NeonConfig
     providers: type[ProviderConfig] = ProviderConfig
     models: type[ModelEnv] = ModelEnv

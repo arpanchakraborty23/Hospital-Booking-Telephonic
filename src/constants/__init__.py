@@ -1,8 +1,8 @@
 from .config import (
     AWSConfig,
     LiveKitConfig,
-    NeonConfig,
     ProviderConfig,
+    DataBaseCOnfig
 )
 from .credentials import Credentials, ModelEnv
 from .model_config import LanguageModelConfig, ModelConfig, get_models
@@ -15,8 +15,8 @@ __all__ = [
     "LanguageModelConfig",
     "ModelEnv",
     "ModelConfig",
-    "NeonConfig",
     "ProviderConfig",
+    "DataBaseCOnfig",
     "env",
     "get_models",
     "required_env",

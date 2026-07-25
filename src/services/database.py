@@ -1,147 +1,175 @@
+import json
 import logging
-from typing import Any, Optional
+import os
+from typing import Any, Optional, Type, TypeVar
 
 import asyncpg
+import redis as redis_lib
 from dotenv import load_dotenv
+from sqlalchemy.exc import SQLAlchemyError
+from sqlmodel import SQLModel, Session, select
+from sqlalchemy import create_engine
 
 from src.constants.config import NeonConfig
 
-logger = logging.getLogger(__name__)
 load_dotenv()
 
 
-class NeonPool:
-    _pool: Optional[asyncpg.Pool] = None
+logger = logging.getLogger(__name__)
 
-    @classmethod
-    async def get_pool(cls) -> asyncpg.Pool:
-        if cls._pool is None:
-            dsn = NeonConfig.database_url
-            if not dsn:
-                raise RuntimeError("NEON_DATABASE_URL is not set")
-            cls._pool = await asyncpg.create_pool(
-                dsn=dsn,
-                min_size=1,
-                max_size=5,
+T = TypeVar("T", bound=SQLModel)
+
+
+class SQLModelValidation:
+
+    @staticmethod
+    def validate(database_url: str):
+        try:
+            engine = create_engine(
+                database_url,
+                echo=False,
+                pool_pre_ping=True,
             )
-            logger.info("Neon pool created")
-        return cls._pool
 
-    @classmethod
-    async def close(cls):
-        if cls._pool:
-            await cls._pool.close()
-            cls._pool = None
-            logger.info("Neon pool closed")
+            with Session(engine) as session:
+                session.exec(select(1))
+
+            logger.info("Connected to PostgreSQL successfully.")
+
+            return engine
+
+        except SQLAlchemyError as e:
+            logger.exception("Database connection failed.")
+            raise e
 
 
-class NeonServices:
+class RedisValidation:
+
+    @staticmethod
+    def validate(redis_url: str) -> redis_lib.Redis:
+        try:
+            client = redis_lib.from_url(redis_url, decode_responses=True)
+            client.ping()
+            logger.info("Connected to Redis at %s", redis_url)
+            return client
+        except Exception as e:
+            logger.error("Redis connection failed: %s", e)
+            raise
+
+class SQLModelServices:
+    def __init__(self, database_url: str, model: Type[T]):
+        self.database_url = database_url
+        self.model = model
+        self.engine = None
+
+    def connect(self):
+        if self.engine is None:
+            self.engine = SQLModelValidation.validate(self.database_url)
+        return self.engine
+
+    def create(self, **kwargs):
+        self.connect()
+        obj = self.model(**kwargs)
+        with Session(self.engine) as session:
+            session.add(obj)
+            session.commit()
+            session.refresh(obj)
+        return obj
+
+    def get(self, id):
+        self.connect()
+        with Session(self.engine) as session:
+            return session.get(self.model, id)
+
+    def get_all(self):
+        self.connect()
+        with Session(self.engine) as session:
+            return session.exec(select(self.model)).all()
+
+    def filter(self, *conditions):
+        self.connect()
+        with Session(self.engine) as session:
+            stmt = select(self.model).where(*conditions)
+            return session.exec(stmt).all()
+
+    def first(self, *conditions):
+        self.connect()
+        with Session(self.engine) as session:
+            stmt = select(self.model).where(*conditions)
+            return session.exec(stmt).first()
+
+    def update(self, id, **kwargs):
+        self.connect()
+        with Session(self.engine) as session:
+            obj = session.get(self.model, id)
+            if obj is None:
+                return None
+            for key, value in kwargs.items():
+                setattr(obj, key, value)
+            session.add(obj)
+            session.commit()
+            session.refresh(obj)
+            return obj
+
+    def delete(self, id):
+        self.connect()
+        with Session(self.engine) as session:
+            obj = session.get(self.model, id)
+            if obj is None:
+                return False
+            session.delete(obj)
+            session.commit()
+            return True
+
+    def disconnect(self):
+        if self.engine:
+            self.engine.dispose()
+            self.engine = None
+            logger.info("Database connection closed.")
+
+
+class RedisServices:
     def __init__(self):
-        self.pool: Optional[asyncpg.Pool] = None
+        self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        self.client: Optional[redis_lib.Redis] = None
+        self._initialized = False
 
-    async def connect(self):
-        self.pool = await NeonPool.get_pool()
-        async with self.pool.acquire() as conn:
-            await conn.execute("SELECT 1")
-        logger.info("Neon connection verified")
-        return self.pool
+    def connect(self) -> redis_lib.Redis:
+        if not self._initialized:
+            self.client = RedisValidation.validate(self.redis_url)
+            self._initialized = True
+        return self.client
 
-    async def disconnect(self):
-        await NeonPool.close()
+    def set_json(self, key: str, data: dict, ttl: Optional[int] = None) -> None:
+        self.connect()
+        self.client.set(key, json.dumps(data))
+        if ttl is not None:
+            self.client.expire(key, ttl)
 
-    async def create(self, table: str, data: dict) -> dict:
-        if not self.pool:
-            self.pool = await NeonPool.get_pool()
-        columns = ", ".join(data.keys())
-        placeholders = ", ".join(f"${i+1}" for i in range(len(data)))
-        values = list(data.values())
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                f"INSERT INTO {table} ({columns}) VALUES ({placeholders}) RETURNING *",
-                *values,
-            )
-            return dict(row)
+    def get_json(self, key: str) -> Optional[dict]:
+        self.connect()
+        data = self.client.get(key)
+        if data is not None:
+            return json.loads(data)
+        return None
 
-    async def read(self, table: str, where: Optional[dict] = None, order_by: Optional[str] = None, limit: Optional[int] = None) -> list[dict]:
-        if not self.pool:
-            self.pool = await NeonPool.get_pool()
-        query = f"SELECT * FROM {table}"
-        params: list[Any] = []
-        if where:
-            conditions = " AND ".join(
-                f"{k} = ${i+1}" for i, k in enumerate(where.keys())
-            )
-            query += f" WHERE {conditions}"
-            params = list(where.values())
-        if order_by:
-            query += f" ORDER BY {order_by}"
-        if limit:
-            query += f" LIMIT {limit}"
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(query, *params)
-            return [dict(r) for r in rows]
+    def append_to_array(self, key: str, array_field: str, item: dict, ttl: Optional[int] = None) -> None:
+        self.connect()
+        data = self.get_json(key)
+        if data is None:
+            data = {}
+        if array_field not in data:
+            data[array_field] = []
+        data[array_field].append(item)
+        self.set_json(key, data, ttl)
 
-    async def read_one(self, table: str, where: dict) -> Optional[dict]:
-        if not self.pool:
-            self.pool = await NeonPool.get_pool()
-        conditions = " AND ".join(
-            f"{k} = ${i+1}" for i, k in enumerate(where.keys())
-        )
-        params = list(where.values())
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                f"SELECT * FROM {table} WHERE {conditions} LIMIT 1",
-                *params,
-            )
-            return dict(row) if row else None
+    def delete(self, key: str) -> None:
+        self.connect()
+        self.client.delete(key)
 
-    async def update(self, table: str, where: dict, data: dict) -> Optional[dict]:
-        if not self.pool:
-            self.pool = await NeonPool.get_pool()
-        set_clause = ", ".join(
-            f"{k} = ${i+1}" for i, k in enumerate(data.keys())
-        )
-        where_clause = " AND ".join(
-            f"{k} = ${len(data) + i + 1}" for i, k in enumerate(where.keys())
-        )
-        params = list(data.values()) + list(where.values())
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                f"UPDATE {table} SET {set_clause} WHERE {where_clause} RETURNING *",
-                *params,
-            )
-            return dict(row) if row else None
-
-    async def delete(self, table: str, where: dict) -> Optional[dict]:
-        if not self.pool:
-            self.pool = await NeonPool.get_pool()
-        conditions = " AND ".join(
-            f"{k} = ${i+1}" for i, k in enumerate(where.keys())
-        )
-        params = list(where.values())
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                f"DELETE FROM {table} WHERE {conditions} RETURNING *",
-                *params,
-            )
-            return dict(row) if row else None
-
-    async def fetch(self, query: str, *args: Any) -> list[dict]:
-        if not self.pool:
-            self.pool = await NeonPool.get_pool()
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(query, *args)
-            return [dict(r) for r in rows]
-
-    async def fetch_one(self, query: str, *args: Any) -> Optional[dict]:
-        if not self.pool:
-            self.pool = await NeonPool.get_pool()
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(query, *args)
-            return dict(row) if row else None
-
-    async def execute(self, query: str, *args: Any) -> str:
-        if not self.pool:
-            self.pool = await NeonPool.get_pool()
-        async with self.pool.acquire() as conn:
-            return await conn.execute(query, *args)
+    def disconnect(self) -> None:
+        if self.client is not None:
+            self.client.close()
+            self._initialized = False
+            self.client = None
+            logger.info("Disconnected from Redis")

@@ -11,7 +11,7 @@ from livekit.plugins import noise_cancellation, silero
 from src.monitoring import active_sessions, total_sessions, observe_stt, observe_llm, observe_tts, start_cpu_monitoring
 from src.services.cost import persist_cost
 from src.utils.session_ctx import set_session_id
-from src.services.database import NeonPool
+from src.services.hospital_data import lookup_patient_by_phone
 from src.voice_agent import RiyaEnglish, RiyaHindi, RiyaBengali
 from src.tools.hospital_tools import HospitalTools
 from src.services import SessionManager
@@ -34,15 +34,6 @@ server = AgentServer(
     host="0.0.0.0",
     port=8081,
 )
-
-async def get_booking_by_phone(phone: str) -> dict | None:
-    pool = await NeonPool.get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT * FROM bookings WHERE patient_phone = $1 ORDER BY appointment_date DESC LIMIT 1",
-            phone,
-        )
-        return dict(row) if row else None
 
 
 def prewarm(proc: JobProcess):
@@ -73,19 +64,22 @@ async def my_agent(ctx: JobContext):
                 participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
             )
     
-    # Extracting database lookup information for the participant
+    # Lookup previous patient info by phone number for SIP calls
+    patient_info = None
     if is_sip_call:
         logger.info(f"SIP call detected for participant {participant.identity}. Initializing SIP logging.")
         ctx.log_context_fields["sip_identity"] = participant.identity
         caller_id = participant.identity
         phone_number = participant.attributes.get('sip.phoneNumber', 'Unknown')
+        patient_info = lookup_patient_by_phone(phone_number)
 
-    participant_details = await get_booking_by_phone(phone_number) if is_sip_call else None
+    if patient_info:
+        language = patient_info.get("language", language)
 
     participant_context = {
         "identity": participant.identity,
-        "name": participant_details["patient_name"] if participant_details else participant.name,
-        "language": participant_details["language"] if participant_details else language,
+        "name": patient_info["name"] if patient_info else participant.name,
+        "language": language,
     }
     logger.info("Participant context: %s", participant_context)
 
@@ -179,6 +173,7 @@ async def my_agent(ctx: JobContext):
     @session.on("session_usage_updated")
     def _on_session_usage_updated(ev: SessionUsageUpdatedEvent):
         metrics_collector.update_session_usage(ev)
+        session_manager.update_usage(ev.to_dict())
 
     @session.on("conversation_item_added")
     def on_conversation_item(event):
@@ -193,6 +188,7 @@ async def my_agent(ctx: JobContext):
                 })
             if event.item.metrics:
                 metrics_collector.add_turn_latency(event.item.role, event.item.metrics)
+                session_manager.update_turn_latency(event.item.role, event.item.metrics)
         except Exception as e:
             logger.error(f"Error logging conversation item: {e}")
 
@@ -201,7 +197,7 @@ async def my_agent(ctx: JobContext):
         try:
             active_sessions.dec()
             report = ctx.make_session_report()
-            await persist_cost(ctx.room.name, report.to_dict())
+            await persist_cost(session_manager, report.to_dict())
             await session_manager.end_session()
             logger.info(f"Session for room {ctx.room.name} ended and cleaned up.")
         except Exception as e:

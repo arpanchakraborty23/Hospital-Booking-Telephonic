@@ -22,11 +22,6 @@ class AWSConfig:
     aws_recording_bucket = required_env("AWS_BUCKET_NAME")
 
 
-class NeonConfig:
-    # Serverless PostgreSQL connection string
-    database_url = env("NEON_DATABASE_URL")
-
-
 class ProviderConfig:
     # Third-party AI provider API keys (all required)
     aws_bedrock_api_key = required_env("AWS_BEDROCK_API_KEY")
@@ -34,11 +29,16 @@ class ProviderConfig:
     deepgram_api_key = required_env("DEEPGRAM_API_KEY")
     Cartesia_api_key = required_env("CARTESIA_API_KEY")
 
+
+class DataBaseCOnfig:
+    # Database Configuration
+    sql_database_url = required_env("NEON_DATABASE_URL")
+
 @dataclass(frozen=True)
 class Credentials:
     # Aggregates all config classes for single import point
     livekit: type[LiveKitConfig] = LiveKitConfig
     aws: type[AWSConfig] = AWSConfig
-    neon: type[NeonConfig] = NeonConfig
     providers: type[ProviderConfig] = ProviderConfig
+    database: type[DataBaseCOnfig] = DataBaseCOnfig
   
