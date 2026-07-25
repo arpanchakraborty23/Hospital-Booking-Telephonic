@@ -73,7 +73,7 @@ async def my_agent(ctx: JobContext):
         ctx.log_context_fields["sip_identity"] = participant.identity
         caller_id = participant.identity
         phone_number = participant.attributes.get('sip.phoneNumber', 'Unknown')
-        previous_calls = _call_svc.filter(CallLog.phone_number == phone_number)
+        previous_calls = await asyncio.to_thread(_call_svc.filter, CallLog.phone_number == phone_number)
         if previous_calls:
             patient_info = {
                 "name": participant.name,

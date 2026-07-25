@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from livekit.agents import function_tool
@@ -14,7 +15,7 @@ _doctor_svc = SQLModelServices(DataBaseCOnfig.sql_database_url, Doctor)
 @function_tool()
 async def get_departments() -> list[str]:
     """Get list of all available departments in the hospital."""
-    doctors = _doctor_svc.get_all()
+    doctors = await asyncio.to_thread(_doctor_svc.get_all)
     departments = sorted({d.specialization for d in doctors if d.specialization})
     return departments
 
@@ -26,7 +27,7 @@ async def get_doctors(department: str) -> list[dict]:
     Args:
         department: Department name
     """
-    doctors = _doctor_svc.filter(Doctor.specialization == department)
+    doctors = await asyncio.to_thread(_doctor_svc.filter, Doctor.specialization == department)
     return [
         {
             "name": d.doctor_name,

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime
 from typing import Optional
@@ -25,9 +26,9 @@ async def check_availability(department: str, doctor: Optional[str] = None, date
         date_str: Date in YYYY-MM-DD format. Defaults to today if not provided.
     """
     if doctor:
-        docs = _doctor_svc.filter(Doctor.doctor_name == doctor)
+        docs = await asyncio.to_thread(_doctor_svc.filter, Doctor.doctor_name == doctor)
     else:
-        docs = _doctor_svc.filter(Doctor.specialization == department)
+        docs = await asyncio.to_thread(_doctor_svc.filter, Doctor.specialization == department)
 
     target_date = date_str or datetime.now().date().isoformat()
     weekday = datetime.fromisoformat(target_date).strftime("%A")
@@ -61,7 +62,8 @@ async def book_appointment(patient_name: str, phone: str, department: str, docto
         time: Appointment time in HH:MM format (e.g., 10:00, 14:30)
     """
     apt_datetime = datetime.fromisoformat(f"{date_str}T{time}:00")
-    apt = _apt_svc.create(
+    apt = await asyncio.to_thread(
+        _apt_svc.create,
         session_id="",
         phone_number=phone,
         appointment_date=apt_datetime,
@@ -90,7 +92,7 @@ async def reschedule_appointment(appointment_id: str, new_date: str, new_time: s
         new_time: New appointment time in HH:MM format
     """
     apt_datetime = datetime.fromisoformat(f"{new_date}T{new_time}:00")
-    updated = _apt_svc.update(int(appointment_id), appointment_date=apt_datetime)
+    updated = await asyncio.to_thread(_apt_svc.update, int(appointment_id), appointment_date=apt_datetime)
     if updated is None:
         return {"error": "Appointment not found", "appointment_id": appointment_id}
     return {
@@ -109,7 +111,7 @@ async def cancel_appointment(appointment_id: str) -> dict:
     Args:
         appointment_id: The appointment ID to cancel
     """
-    updated = _apt_svc.update(int(appointment_id), status="cancelled")
+    updated = await asyncio.to_thread(_apt_svc.update, int(appointment_id), status="cancelled")
     if updated is None:
         return {"error": "Appointment not found", "appointment_id": appointment_id}
     return {
@@ -126,7 +128,7 @@ async def lookup_appointment(phone: str) -> list[dict]:
     Args:
         phone: Patient's phone number with country code
     """
-    apts = _apt_svc.filter(Appointment.phone_number == phone)
+    apts = await asyncio.to_thread(_apt_svc.filter, Appointment.phone_number == phone)
     return [
         {
             "appointment_id": a.id,

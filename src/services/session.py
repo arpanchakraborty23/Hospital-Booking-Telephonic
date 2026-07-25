@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime
 from typing import Optional
@@ -5,6 +6,7 @@ from typing import Optional
 from dotenv import load_dotenv
 
 from .database import RedisServices, SQLModelServices
+from .call_eval import CallEvaluation
 from src.constants.config import DataBaseCOnfig
 from src.constants.models import call_logs as CallLogModel
 from src.constants.models import cost as CostModel
@@ -109,9 +111,14 @@ class MetricsLogs:
 
 class SessionManager:
     """
-    Orchestrates session lifecycle — delegates actual Redis I/O to
-    CallLogs, TranscriptsLogs, and MetricsLogs.  At session end, all
-    data is persisted to PostgreSQL via SQLModelServices.
+    Orchestrates session lifecycle.
+
+    Live data (transcript, usage, latency, cost) is kept in Redis during
+    the call for low-latency access.  At session start, initial rows are
+    created in PostgreSQL (call_logs, transcriptions).  At session end,
+    those rows are updated with final data and Metrics/cost rows are
+    created.  All DB operations run via asyncio.to_thread() so the
+    voice agent event loop is never blocked.
     """
 
     def __init__(self):
@@ -120,7 +127,11 @@ class SessionManager:
         self._phone_number: Optional[str] = None
         self._language: str = "en"
 
-        # Data-store sub-components (lazy-initialised in start())
+        # DB row IDs created at session start, updated at session end
+        self._call_log_id: Optional[int] = None
+        self._transcription_id: Optional[int] = None
+
+        # Redis data-store sub-components (lazy-initialised in start())
         self.call: Optional[CallLogs] = None
         self.transcripts: Optional[TranscriptsLogs] = None
         self.metrics: Optional[MetricsLogs] = None
@@ -129,10 +140,12 @@ class SessionManager:
     # Session lifecycle
     # ------------------------------------------------------------------
 
-    def start(self, session_id: str, participant_context: dict):
+    async def start(self, session_id: str, participant_context: dict):
         """
-        Initialise a new session: wire up stores, persist call metadata,
-        and record the start time.
+        Initialise a new session:
+        1. Wire up Redis stores and persist call metadata.
+        2. Create initial call_logs and transcriptions rows in DB
+           (runs in a background thread — does not block the event loop).
         """
         self.session_id = session_id
         self._phone_number = participant_context.get("identity")
@@ -150,7 +163,51 @@ class SessionManager:
             "participant_context": participant_context,
         }
         self.call.save(call_data)
+
+        # Create initial DB rows in a background thread (non-blocking)
+        await asyncio.to_thread(self._create_initial_db_rows)
+
         logger.info("Session %s started", session_id)
+
+    def _create_initial_db_rows(self):
+        """Create initial call_logs and transcriptions rows. Runs in a thread."""
+        try:
+            now = datetime.now()
+
+            _call_svc = SQLModelServices(
+                DataBaseCOnfig.sql_database_url, CallLogModel
+            )
+            call_log = _call_svc.create(
+                session_id=self.session_id,
+                phone_number=self._phone_number or "",
+                summary="",
+                start_time=now,
+                end_time=now,
+                duration=0.0,
+            )
+            self._call_log_id = call_log.id if call_log else None
+
+            _trans_svc = SQLModelServices(
+                DataBaseCOnfig.sql_database_url, TranscriptionModel
+            )
+            transcription = _trans_svc.create(
+                session_id=self.session_id,
+                phone_number=self._phone_number or "",
+                transcription_text={"messages": []},
+                count=0,
+                language=self._language,
+                summary="",
+            )
+            self._transcription_id = transcription.id if transcription else None
+
+            logger.info(
+                "Initial DB rows created for %s (call_log=%s, transcription=%s)",
+                self.session_id,
+                self._call_log_id,
+                self._transcription_id,
+            )
+        except Exception as e:
+            logger.error("Error creating initial DB rows: %s", e)
 
     async def end_session(self, duration_seconds: float = 0.0):
         """
@@ -158,67 +215,119 @@ class SessionManager:
 
         1. Read transcript, usage, latency, and cost from Redis.
         2. Generate a summary (eval) from the transcript.
-        3. Store transcript in DB (transcriptions table).
-        4. Store call log with summary in DB (call_logs table).
-        5. Store metrics in DB (Metrics table).
-        6. Store cost in DB (cost table).
-        7. Clean up all session data from Redis.
+        3. Update existing call_logs and transcriptions rows in DB.
+        4. Create Metrics and cost rows in DB.
+        5. Clean up all session data from Redis.
+
+        All DB operations run via asyncio.to_thread() so the event
+        loop is never blocked.
         """
         if not self._check_active():
             return
 
-        messages = []
-        call_data = {}
-        usage = {}
-        latencies = []
-        cost_data = {}
+        # ---- 1. Gather data from Redis (fast, in-memory) ----
+        messages = self.transcripts.get_all()
+        call_data = self.call.get() or {}
+        usage = self.metrics.get_usage() or {}
+        latencies = self.metrics.get_latencies()
+        cost_data = self.metrics.get_cost() or {}
 
+        # Compute timing
+        started_at_str = call_data.get("started_at")
+        start_time = (
+            datetime.fromisoformat(started_at_str) if started_at_str else datetime.now()
+        )
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+
+        # ---- 2. Eval / summarise using transcript ----
+        evaluator = CallEvaluation(
+            phone_number=self._phone_number or "",
+            language=self._language,
+        )
+        summary = evaluator.generate_summary(messages)
+
+        # ---- 3-4. Persist to DB in a background thread (non-blocking) ----
+        await asyncio.to_thread(
+            self._persist_to_db,
+            messages, summary, start_time, end_time, duration,
+            usage, latencies, cost_data,
+        )
+
+        logger.info(
+            "Session %s ended. %d messages. Duration: %.1fs. "
+            "Transcript, call log, metrics, and cost stored in DB.",
+            self.session_id, len(messages), duration,
+        )
+
+        # ---- 5. Clean up Redis ----
+        self.call.delete()
+        self.transcripts.delete()
+        self.metrics.delete_all()
+
+        self.session_id = None
+        self._call_log_id = None
+        self._transcription_id = None
+        self.call = None
+        self.transcripts = None
+        self.metrics = None
+
+    def _persist_to_db(
+        self,
+        messages: list,
+        summary: str,
+        start_time: datetime,
+        end_time: datetime,
+        duration: float,
+        usage: dict,
+        latencies: list,
+        cost_data: dict,
+    ):
+        """Update DB rows with final session data. Runs in a thread."""
         try:
-            # ---- 1. Gather data from Redis ----
-            messages = self.transcripts.get_all()
-            call_data = self.call.get() or {}
-            usage = self.metrics.get_usage() or {}
-            latencies = self.metrics.get_latencies()
-            cost_data = self.metrics.get_cost() or {}
-
-            # Compute timing
-            started_at_str = call_data.get("started_at")
-            start_time = (
-                datetime.fromisoformat(started_at_str) if started_at_str else datetime.now()
-            )
-            end_time = datetime.now()
-            duration = (end_time - start_time).total_seconds()
-
-            # ---- 2. Eval / summarise using transcript ----
-            summary = self._generate_summary(messages)
-
-            # ---- 3. Store transcript in DB ----
+            # ---- Update transcriptions row ----
             _trans_svc = SQLModelServices(
                 DataBaseCOnfig.sql_database_url, TranscriptionModel
             )
-            _trans_svc.create(
-                session_id=self.session_id,
-                phone_number=self._phone_number or "",
-                transcription_text={"messages": messages},
-                count=len(messages),
-                language=self._language,
-                summary=summary,
-            )
+            if self._transcription_id:
+                _trans_svc.update(
+                    self._transcription_id,
+                    transcription_text={"messages": messages},
+                    count=len(messages),
+                    summary=summary,
+                )
+            else:
+                _trans_svc.create(
+                    session_id=self.session_id,
+                    phone_number=self._phone_number or "",
+                    transcription_text={"messages": messages},
+                    count=len(messages),
+                    language=self._language,
+                    summary=summary,
+                )
 
-            # ---- 4. Call logs with summary ----
+            # ---- Update call_logs row ----
             _call_svc = SQLModelServices(
                 DataBaseCOnfig.sql_database_url, CallLogModel
             )
-            _call_svc.create(
-                session_id=self.session_id,
-                phone_number=self._phone_number or "",
-                summary=summary,
-                start_time=start_time,
-                end_time=end_time,
-                duration=duration,
-            )
+            if self._call_log_id:
+                _call_svc.update(
+                    self._call_log_id,
+                    summary=summary,
+                    end_time=end_time,
+                    duration=duration,
+                )
+            else:
+                _call_svc.create(
+                    session_id=self.session_id,
+                    phone_number=self._phone_number or "",
+                    summary=summary,
+                    start_time=start_time,
+                    end_time=end_time,
+                    duration=duration,
+                )
 
-            # ---- 5. Metrics in DB ----
+            # ---- Create Metrics row ----
             stt_metric: dict = {}
             tts_metric: dict = {}
             llm_metric: dict = {}
@@ -259,7 +368,7 @@ class SessionManager:
                 average_latency=avg_latency,
             )
 
-            # ---- 6. Cost in DB ----
+            # ---- Create cost row ----
             if cost_data:
                 _cost_svc = SQLModelServices(
                     DataBaseCOnfig.sql_database_url, CostModel
@@ -273,26 +382,8 @@ class SessionManager:
                     sip_cost=cost_data.get("sip_cost", 0.0),
                     total_cost=cost_data.get("total_cost", 0.0),
                 )
-
-            logger.info(
-                "Session %s ended. %d messages. Duration: %.1fs. "
-                "Transcript, call log, metrics, and cost stored in DB.",
-                self.session_id,
-                len(messages),
-                duration,
-            )
         except Exception as e:
-            logger.error("Error during DB persistence in end_session: %s", e)
-        finally:
-            # ---- 7. Clean up Redis regardless ----
-            self.call.delete()
-            self.transcripts.delete()
-            self.metrics.delete_all()
-
-            self.session_id = None
-            self.call = None
-            self.transcripts = None
-            self.metrics = None
+            logger.error("Error persisting to DB: %s", e)
 
     # ------------------------------------------------------------------
     # Conversation transcripts
@@ -388,38 +479,6 @@ class SessionManager:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _generate_summary(self, messages: list) -> str:
-        """Generate a concise summary (eval) from the conversation transcript."""
-        if not messages:
-            return "No conversation recorded."
-
-        user_count = sum(1 for m in messages if m.get("role") == "user")
-        agent_count = sum(1 for m in messages if m.get("role") == "agent")
-
-        topics = []
-        for m in messages:
-            msg = str(m.get("message", "")).lower()
-            if "appointment" in msg or "booking" in msg:
-                topics.append("appointment booking")
-            elif "reschedule" in msg:
-                topics.append("rescheduling")
-            elif "cancel" in msg:
-                topics.append("cancellation")
-            elif "doctor" in msg or "department" in msg:
-                topics.append("directory inquiry")
-
-        summary = (
-            f"Call with {self._phone_number}. "
-            f"{len(messages)} messages ({user_count} user, {agent_count} agent). "
-        )
-        if topics:
-            unique_topics = list(dict.fromkeys(topics))
-            summary += f"Topics: {', '.join(unique_topics)}."
-        else:
-            summary += "General inquiry."
-
-        return summary
 
     def _check_active(self) -> bool:
         """Guard: log a warning if no session has been started."""
