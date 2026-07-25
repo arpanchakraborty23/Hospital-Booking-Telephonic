@@ -11,3 +11,4 @@ wheels/
 .env
 doc/*
 exp/*
+frontend

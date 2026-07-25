@@ -4,7 +4,8 @@ import logging
 from livekit import agents, rtc
 from livekit.agents import AgentServer, AgentSession, room_io, JobProcess, metrics, UserStateChangedEvent, MetricsCollectedEvent
 from livekit.agents.voice import SessionUsageUpdatedEvent
-from livekit.agents import ChatContext, JobContext, ServerEnvOption
+from livekit.agents import ChatContext, JobContext
+from livekit.agents.worker import ServerEnvOption
 from livekit.agents.metrics import STTMetrics, LLMMetrics, TTSMetrics
 from livekit.plugins import noise_cancellation, silero
 
