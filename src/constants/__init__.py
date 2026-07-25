@@ -1,6 +1,7 @@
 from .config import (
     AWSConfig,
     DataBaseCOnfig,
+    EvalConfig,
     LiveKitConfig,
     ProviderConfig,
 )
@@ -12,6 +13,7 @@ __all__ = [
     "AWSConfig",
     "Credentials",
     "DataBaseCOnfig",
+    "EvalConfig",
     "LiveKitConfig",
     "LanguageModelConfig",
     "ModelEnv",

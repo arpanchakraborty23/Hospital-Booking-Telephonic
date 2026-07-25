@@ -34,6 +34,11 @@ class DataBaseCOnfig:
     # Database Configuration
     sql_database_url = required_env("NEON_DATABASE_URL")
 
+
+class EvalConfig:
+    # Bedrock model for call evaluation (LLM-based transcript analysis)
+    bedrock_eval_model = env("BEDROCK_EVAL_MODEL", "amazon.nova-lite-v1:0")
+
 @dataclass(frozen=True)
 class Credentials:
     # Aggregates all config classes for single import point
@@ -41,4 +46,5 @@ class Credentials:
     aws: type[AWSConfig] = AWSConfig
     providers: type[ProviderConfig] = ProviderConfig
     database: type[DataBaseCOnfig] = DataBaseCOnfig
+    eval: type[EvalConfig] = EvalConfig
   

@@ -240,17 +240,17 @@ class SessionManager:
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
 
-        # ---- 2. Eval / summarise using transcript ----
+        # ---- 2. Eval / summarise using transcript (LLM, async) ----
         evaluator = CallEvaluation(
             phone_number=self._phone_number or "",
             language=self._language,
         )
-        summary = evaluator.generate_summary(messages)
+        eval_result = await evaluator.evaluate(messages)
 
         # ---- 3-4. Persist to DB in a background thread (non-blocking) ----
         await asyncio.to_thread(
             self._persist_to_db,
-            messages, summary, start_time, end_time, duration,
+            messages, eval_result, start_time, end_time, duration,
             usage, latencies, cost_data,
         )
 
@@ -275,7 +275,7 @@ class SessionManager:
     def _persist_to_db(
         self,
         messages: list,
-        summary: str,
+        eval_result: dict,
         start_time: datetime,
         end_time: datetime,
         duration: float,
@@ -284,15 +284,24 @@ class SessionManager:
         cost_data: dict,
     ):
         """Update DB rows with final session data. Runs in a thread."""
+        summary = eval_result.get("summary", "")
+        evaluation = {
+            "metrics": eval_result.get("metrics", {}),
+            "feedback": eval_result.get("feedback", ""),
+        }
         try:
             # ---- Update transcriptions row ----
             _trans_svc = SQLModelServices(
                 DataBaseCOnfig.sql_database_url, TranscriptionModel
             )
+            transcription_text = {
+                "messages": messages,
+                "evaluation": evaluation,
+            }
             if self._transcription_id:
                 _trans_svc.update(
                     self._transcription_id,
-                    transcription_text={"messages": messages},
+                    transcription_text=transcription_text,
                     count=len(messages),
                     summary=summary,
                 )
@@ -300,7 +309,7 @@ class SessionManager:
                 _trans_svc.create(
                     session_id=self.session_id,
                     phone_number=self._phone_number or "",
-                    transcription_text={"messages": messages},
+                    transcription_text=transcription_text,
                     count=len(messages),
                     language=self._language,
                     summary=summary,
