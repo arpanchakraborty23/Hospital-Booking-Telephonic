@@ -12,6 +12,23 @@ services:
       timeout: 5s
       retries: 5
 
+  hospital-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hospital-agent
+    ports:
+      - "8001:8081"
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - PROMETHEUS_PORT=8081
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v2.53.0
     container_name: hospital-prometheus

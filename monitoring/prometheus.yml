@@ -5,7 +5,7 @@ global:
 scrape_configs:
   - job_name: "hospital-agent"
     static_configs:
-      - targets: ["host.docker.internal:8001"]
+      - targets: ["hospital-agent:8081"]
     metrics_path: /metrics
 
   - job_name: "node_exporter"
