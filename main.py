@@ -13,7 +13,7 @@ from src.monitoring import (
     active_sessions, total_sessions,
     observe_stt, observe_llm, observe_tts, start_cpu_monitoring,
     observe_session_language, observe_sip_call, returning_callers,
-    observe_session_duration, observe_e2e_latency, observe_error, observe_cost,
+    observe_session_duration, e2e_latency, observe_error, observe_cost,
 )
 from src.services.cost import persist_cost
 from src.utils.session_ctx import set_session_id
@@ -38,7 +38,7 @@ server = AgentServer(
     drain_timeout=3600,
     num_idle_processes=ServerEnvOption(dev_default=0, prod_default=4),
     log_level=ServerEnvOption(dev_default="DEBUG", prod_default="INFO"),
-    prometheus_port=8081,
+    prometheus_port=8082,
     host="0.0.0.0",
     port=8081,
 )
@@ -108,7 +108,7 @@ async def my_agent(ctx: JobContext):
 
     # Inject long-term patient history into chat context so agent knows past interactions
     chat_ctx = ChatContext()
-    chat_ctx.add_message(role="system", content=participant_context)
+    chat_ctx.add_message(role="system", content=str(participant_context))
     logger.info("Injected participant context for %s", participant_context["identity"])
 
 
@@ -245,5 +245,7 @@ async def my_agent(ctx: JobContext):
 
 
 if __name__ == "__main__":
-    start_cpu_monitoring()
+    @server.once("worker_started")
+    def _on_worker_started() -> None:
+        start_cpu_monitoring()
     agents.cli.run_app(server)

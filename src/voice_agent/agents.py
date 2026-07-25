@@ -6,10 +6,10 @@ from livekit.agents.stt import FallbackAdapter as STTFallBack
 from livekit.agents.tts import FallbackAdapter as TTSFallBack
 from livekit.plugins import deepgram, sarvam, silero
 
-from . import BaseAgent
+from .base_agent import BaseAgent
 from src.tools import tool_router
 from src.constants import ProviderConfig, get_models
-from src.prompt.english import english_prompt
+from src.prompt.english import english_base_prompt as english_prompt
 from src.prompt.hindi import hindi_prompt
 from src.prompt.bengali import bengali_prompt
 

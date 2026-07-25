@@ -1,5 +1,4 @@
 from livekit.agents import function_tool, RunContext
-from .hospital_tools import HospitalTools
 
 # simple in-memory session state
 class InMemoryState:
@@ -25,6 +24,7 @@ async def tool_router(context: RunContext, action: str, target: str = ""):
     target: required when action == "load" (appointments, directory, communication)
     """
     # helper to get router toolset and current agent tools
+    from .hospital_tools import HospitalTools
     router_ts = HospitalTools.get_toolset("router")
 
     if action == "check_tools":

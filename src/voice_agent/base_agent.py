@@ -8,8 +8,6 @@ from livekit.agents import Agent, ModelSettings, llm, stt
 
 from src.monitoring import observe_intent
 from src.prompt import get_prompt
-from .agents import get_agent_class
-
 class BaseAgent(Agent):
     """
     Extended Agent class with streaming capabilities for LLM, STT, and TTS.
@@ -100,6 +98,7 @@ class BaseAgent(Agent):
         """
         Update the prompt for the LLM. This function can be called from within the LLM context.
         """
+        from .agents import get_agent_class
         agent_class = get_agent_class(language)
         self.session.update_agent(agent_class(instructions=instructions, vad=self._vad, chat_ctx=self.chat_ctx))
         await self.session.generate_reply()  # Trigger a new LLM response with the updated prompt

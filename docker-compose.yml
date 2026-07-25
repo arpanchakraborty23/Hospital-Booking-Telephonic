@@ -19,11 +19,12 @@ services:
     container_name: hospital-agent
     ports:
       - "8001:8081"
+      - "8082:8082"
     env_file:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - PROMETHEUS_PORT=8081
+      - PROMETHEUS_PORT=8082
     depends_on:
       redis:
         condition: service_healthy
